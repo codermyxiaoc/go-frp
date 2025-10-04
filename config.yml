@@ -1,0 +1,14 @@
+#commion
+buffer-size: 5 #mb
+keep-alive-time: 10 #s
+server-port: 8080
+
+#server
+web-port: 8088
+connection-count: 5 #s
+connection-timeout: 5
+conn-chan-count: 100
+
+#client
+server-ip: 127.0.0.1
+local-port: 8090
