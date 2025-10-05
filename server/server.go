@@ -8,10 +8,7 @@ import (
 	"github.com/spf13/viper"
 	"log"
 	"net"
-	"os"
-	"os/signal"
 	"sync"
-	"syscall"
 	"time"
 )
 
@@ -34,8 +31,6 @@ func init() {
 	v.AddConfigPath(".")
 	v.SetDefault("server-port", "8080")
 	v.SetDefault("web-port", "8088")
-	v.SetDefault("connection-count", 3)
-	v.SetDefault("connection-timeout", 5)
 	v.SetDefault("buffer-size", 5)
 	v.SetDefault("conn-chan-count", 100)
 	v.SetDefault("keep-alive-time", 10)
@@ -48,34 +43,16 @@ func init() {
 }
 
 func main() {
-
-	quitChan := make(chan os.Signal, 1)
-	signal.Notify(quitChan, syscall.SIGINT, syscall.SIGTERM)
-
 	reconnectChan := make(chan struct{})
 
 	for {
 		log.Println("=== 开始初始化服务端 ===")
 		listen, err := net.Listen("tcp", ":8080")
-		if err != nil {
-			log.Printf("服务端监听绑定失败（致命错误）: %v", err)
-			for i := 0; i < config.ConnectionCount; i++ {
-				log.Printf("5秒后重试第 %d 次...", i+1)
-				time.Sleep(time.Duration(config.ConnectionTime) * time.Second)
-				listen, err = net.Listen("tcp", fmt.Sprintf(":%s", config.ServerPort))
-				if err == nil {
-					break
-				}
-			}
-			if err != nil {
-				log.Fatalf("重试3次后仍无法绑定监听，服务退出: %v", err)
-			}
-		}
 		log.Printf("服务端监听启动成功: :%s", config.ServerPort)
 
 		masterConn, err := listen.Accept()
 		if err != nil {
-			log.Printf("接受主连接失败: %v", err)
+			log.Printf("主连接失败: %v", err)
 			_ = listen.Close()
 			continue
 		}
@@ -89,25 +66,10 @@ func main() {
 		wg.Add(3)
 		go inform(masterConn, informChan, reconnectChan, &wg)
 		go acceptWeb(connChan, informChan, ctx, &wg)
-		go acceptTask(listen, connChan, ctx, &wg)
+		go acceptTask(listen, connChan, &wg)
 
 		select {
-		case <-quitChan:
-			log.Println("=== 收到全局退出信号，开始清理资源 ===")
-
-			cancel()
-
-			_ = listen.Close()
-			_ = masterConn.Close()
-
-			wg.Wait()
-
-			close(informChan)
-			close(connChan)
-			log.Println("服务端已完全退出")
-			return
 		case <-reconnectChan:
-			log.Println("=== 收到重连信号，开始重启服务 ===")
 			cancel()
 			_ = listen.Close()
 			_ = masterConn.Close()
@@ -122,13 +84,10 @@ func main() {
 
 func inform(masterConn net.Conn, informChan <-chan struct{}, reconnectChan chan<- struct{}, wg *sync.WaitGroup) {
 	defer func() {
+		log.Println("=== 收到重连信号，开始重启服务 ===")
 		log.Println("inform 协程已退出")
 		wg.Done()
-		select {
-		case reconnectChan <- struct{}{}:
-		default:
-			log.Println("重连通道无接收者，忽略重连信号")
-		}
+		reconnectChan <- struct{}{}
 	}()
 
 	ticker := time.NewTicker(time.Duration(config.KeepAliveTime) * time.Second)
@@ -175,7 +134,6 @@ func acceptWeb(connChan chan<- net.Conn, informChan chan<- struct{}, ctx context
 
 	go func() {
 		<-ctx.Done()
-		log.Println("acceptWeb 收到退出信号，关闭web监听")
 		_ = webListen.Close()
 	}()
 
@@ -187,7 +145,7 @@ func acceptWeb(connChan chan<- net.Conn, informChan chan<- struct{}, ctx context
 				log.Println("web监听已关闭，acceptWeb 正常退出")
 				return
 			}
-			log.Printf("web端接受连接失败: %v", err)
+			log.Printf("web端接收连接失败: %v", err)
 			continue
 		}
 
@@ -210,24 +168,13 @@ func acceptWeb(connChan chan<- net.Conn, informChan chan<- struct{}, ctx context
 	}
 }
 
-func acceptTask(mainListen net.Listener, connChan <-chan net.Conn, ctx context.Context, wg *sync.WaitGroup) {
+func acceptTask(mainListen net.Listener, connChan <-chan net.Conn, wg *sync.WaitGroup) {
 	defer func() {
 		log.Println("acceptTask 协程已退出")
 		wg.Done()
 	}()
 
-	go func() {
-		<-ctx.Done()
-		log.Println("acceptTask 收到退出信号，准备退出")
-	}()
-
 	for {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-		}
-
 		taskConn, err := mainListen.Accept()
 		if err != nil {
 			var opErr *net.OpError
@@ -235,30 +182,27 @@ func acceptTask(mainListen net.Listener, connChan <-chan net.Conn, ctx context.C
 				log.Println("主监听已关闭，acceptTask 正常退出")
 				return
 			}
-			log.Printf("接受任务连接失败: %v", err)
+			log.Printf("接收任务连接失败: %v", err)
 			continue
 		}
 		taskAddr := taskConn.RemoteAddr().String()
 		log.Printf("任务连接建立成功: %s", taskAddr)
 
-		select {
-		case webConn, ok := <-connChan:
-			if !ok {
-				log.Printf("connChan 已关闭，关闭任务连接（%s）", taskAddr)
+		go func(taskConn net.Conn) {
+			select {
+			case webConn, ok := <-connChan:
+				if !ok {
+					log.Printf("connChan 已关闭，关闭任务连接（%s）", taskAddr)
+					_ = taskConn.Close()
+					return
+				}
+				taskID := fmt.Sprintf("task-%d", time.Now().UnixNano())
+				log.Printf("任务配对成功: %s（web: %s, task: %s）", taskID, webConn.RemoteAddr(), taskAddr)
+				go common.TaskHandler(webConn, taskConn, "web", "task", taskID, config.BufferSize*1024*1024)
+			case <-time.After(30 * time.Second):
+				log.Printf("任务连接（%s）30秒内无web连接配对，已关闭", taskAddr)
 				_ = taskConn.Close()
-				return
 			}
-			taskID := fmt.Sprintf("task-%d", time.Now().UnixNano())
-			log.Printf("任务配对成功: %s（web: %s, task: %s）", taskID, webConn.RemoteAddr(), taskAddr)
-			go common.TaskHandler(webConn, taskConn, "web", "task", taskID, config.BufferSize*1024*1024)
-
-		case <-time.After(30 * time.Second):
-			log.Printf("任务连接（%s）30秒内无web连接配对，已关闭", taskAddr)
-			_ = taskConn.Close()
-		case <-ctx.Done():
-			log.Printf("任务连接（%s）未配对，因退出信号已关闭", taskAddr)
-			_ = taskConn.Close()
-			return
-		}
+		}(taskConn)
 	}
 }

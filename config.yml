@@ -5,8 +5,6 @@ server-port: 8080
 
 #server
 web-port: 8088
-connection-count: 5 #s
-connection-timeout: 5
 conn-chan-count: 100
 
 #client

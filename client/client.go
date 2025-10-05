@@ -43,7 +43,6 @@ func init() {
 
 func main() {
 	log.Println("客户端启动，尝试连接服务器...")
-
 	dialer := net.Dialer{Timeout: 10 * time.Second}
 	masterConn, err := dialer.Dial("tcp", fmt.Sprintf("%s:%s", config.ServerIp, config.ServerPort))
 	if err != nil {
