@@ -2,7 +2,7 @@
 buffer-size: 5 #mb
 keep-alive-time: 10 #s
 server-port: 8080
-
+idle-timeout: 30 #s
 #server
 web-port: 8088
 conn-chan-count: 100

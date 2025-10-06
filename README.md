@@ -6,6 +6,7 @@
 - 主连接+任务连接保证大文件穿透稳定传输
 - 使用缓冲区进行读写交换
 - yml配置 手动配置服务各个参数（缓冲区大小，通道大小，心跳包时间等）
+- 长连接超时策略
 
 ## 说明
 - server端： 具有公网地址的服务器
@@ -26,9 +27,10 @@ go run client.go
 ## 配置
 
 <div align="center">
-  <img src="./images/wechat_2025-10-05_031754_962.png" width="800">
+  <img src="./images/wechat_2025-10-06_104926_336.png" width="800">
   <br>
 </div>
+
 
 ```yml
 #commion
@@ -39,14 +41,12 @@ buffer-size: 5 #mb
 keep-alive-time: 10 #s
 #服务端端口
 server-port: 8080
+#长连接超时时间
+idle-timeout: 30 #s
 
 #server
 #server 的web端端口
 web-port: 8088
-#服务端重连次数
-connection-count: 5 #s
-#服务端重连间隔时间
-connection-timeout: 5
 #接收任务请求的通道大小
 conn-chan-count: 100
 
@@ -59,12 +59,30 @@ local-port: 8090
 
 ## 测试截图
 
-包含网页，大文件穿透下载，多种协议穿透，开启服务端开机自启
+并发测试 1秒500线程10次循环 全部成功 其他暂时还未测试
+
+<div align="center">
+  <img src="./images/wechat_2025-10-06_114438_201.png" width="800">
+  <br>
+</div>
+
+<div align="center">
+  <img src="./images/wechat_2025-10-06_114625_143.png" width="800">
+  <br>
+</div>
+
+大文件下载测试
+
 
 <div align="center">
   <img src="./images/wechat_2025-10-04_234208_609.png" width="800">
   <br>
 </div>
+
+## 代码服务器截图
+
+运行截图
+
 
 <div align="center">
   <img src="./images/wechat_2025-10-05_031410_348.png" width="800">
@@ -78,11 +96,6 @@ local-port: 8090
 
 <div align="center">
   <img src="./images/wechat_2025-10-05_031441_351.png" width="800">
-  <br>
-</div>
-
-<div align="center">
-  <img src="./images/wechat_2025-10-05_031512_631.png" width="800">
   <br>
 </div>
 

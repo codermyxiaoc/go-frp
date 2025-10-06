@@ -8,16 +8,27 @@ import (
 	"sync"
 )
 
-func TaskHandler(a, b net.Conn, dstName, srcName, taskID string, bufferSize int) {
+func Transform(dstConn, srcConn net.Conn, dstName, srcName, taskID string, bufferSize int, idleTimeout int64) {
 	var closeOnce sync.Once
 	var wg sync.WaitGroup
 	wg.Add(2)
 
 	closeConn := func() {
-		_ = a.Close()
-		_ = b.Close()
+		_ = dstConn.Close()
+		_ = srcConn.Close()
 		log.Printf("[%s] %s<->%s 连接已关闭", taskID, dstName, srcName)
 	}
+
+	// 长连接监听超时
+	callback := func() {
+		log.Printf("[%s] %s<->%s 连接超时", taskID, dstName, srcName)
+		closeConn()
+	}
+	session := NewSession(idleTimeout, &callback)
+	defer session.Close()
+	monitoredDst := NewMonitored(&dstConn, session)
+	monitoredSrc := NewMonitored(&srcConn, session)
+	go session.monitorIdle()
 
 	go func() {
 		defer func() {
@@ -25,10 +36,10 @@ func TaskHandler(a, b net.Conn, dstName, srcName, taskID string, bufferSize int)
 			closeOnce.Do(closeConn)
 		}()
 
-		written, err := io.CopyBuffer(a, b, make([]byte, bufferSize))
+		written, err := io.CopyBuffer(monitoredDst, monitoredSrc, make([]byte, bufferSize))
 		if err != nil {
 			if !IsClosedError(err) {
-				log.Printf("[%s] %s->%s 转发异常: %v", taskID, srcName, dstName, err)
+				log.Printf("[%s] %s->%s 转发异常: %v", taskID, dstName, srcName, err)
 			}
 		}
 		log.Printf("[%s] %s->%s 转发完成，共 %d 字节", taskID, srcName, dstName, written)
@@ -40,7 +51,7 @@ func TaskHandler(a, b net.Conn, dstName, srcName, taskID string, bufferSize int)
 			closeOnce.Do(closeConn)
 		}()
 
-		written, err := io.CopyBuffer(b, a, make([]byte, bufferSize))
+		written, err := io.CopyBuffer(monitoredSrc, monitoredDst, make([]byte, bufferSize))
 		if err != nil {
 			if !IsClosedError(err) {
 				log.Printf("[%s] %s->%s 转发异常: %v", taskID, dstName, srcName, err)

@@ -18,6 +18,7 @@ type Config struct {
 	LocalPort     string `mapstructure:"local-port"`
 	BufferSize    int    `mapstructure:"buffer-size"`
 	KeepAliveTime int    `mapstructure:"keep-alive-time"`
+	IdleTimeout   int64  `mapstructure:"idle-timeout"`
 }
 
 var config Config
@@ -31,6 +32,7 @@ func init() {
 	v.SetDefault("server-port", "8080")
 	v.SetDefault("keep-alive-time", 10)
 	v.SetDefault("buffer-size", 5)
+	v.SetDefault("idle-timeout", 30)
 	v.SetDefault("server-ip", "127.0.0.1")
 	if err := v.ReadInConfig(); err != nil {
 		log.Printf("读取配置文件失败: %v", err)
@@ -68,14 +70,14 @@ func main() {
 	log.Println("程序退出")
 }
 
-func keepAlive(conn net.Conn) {
+func keepAlive(masterConn net.Conn) {
 	ticker := time.NewTicker(time.Duration(config.KeepAliveTime) * time.Second)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ticker.C:
-			_, err := conn.Write([]byte("pi"))
+			_, err := masterConn.Write([]byte("pi"))
 			if err != nil {
 				log.Printf("发送心跳包失败: %v，尝试重连...", err)
 				return
@@ -91,7 +93,6 @@ func inform(masterConn net.Conn) {
 			log.Printf("设置读取超时失败: %v", err)
 			return
 		}
-
 		read, err := masterConn.Read(buffer)
 		if err != nil {
 			var netErr net.Error
@@ -130,7 +131,7 @@ func taskHandler() {
 	taskID := fmt.Sprintf("task-%d", time.Now().UnixNano())
 	log.Printf("启动任务处理: %s", taskID)
 
-	common.TaskHandler(localConn, serverConn, "local", "server", taskID, config.BufferSize*1024*1024)
+	common.Transform(localConn, serverConn, "local", "server", taskID, config.BufferSize*1024*1024, config.IdleTimeout)
 
 	log.Printf("任务处理完成: %s", taskID)
 }

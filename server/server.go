@@ -13,13 +13,12 @@ import (
 )
 
 type Config struct {
-	ServerPort      string `mapstructure:"server-port"`
-	WebPort         string `mapstructure:"web-port"`
-	ConnectionCount int    `mapstructure:"connection-count"`
-	ConnectionTime  int    `mapstructure:"connection-timeout"`
-	ConnChanCount   int    `mapstructure:"conn-chan-count"`
-	BufferSize      int    `mapstructure:"buffer-size"`
-	KeepAliveTime   int    `mapstructure:"keep-alive-time"`
+	ServerPort    string `mapstructure:"server-port"`
+	WebPort       string `mapstructure:"web-port"`
+	ConnChanCount int    `mapstructure:"conn-chan-count"`
+	IdleTimeout   int64  `mapstructure:"idle-timeout"`
+	BufferSize    int    `mapstructure:"buffer-size"`
+	KeepAliveTime int    `mapstructure:"keep-alive-time"`
 }
 
 var config Config
@@ -32,6 +31,7 @@ func init() {
 	v.SetDefault("server-port", "8080")
 	v.SetDefault("web-port", "8088")
 	v.SetDefault("buffer-size", 5)
+	v.SetDefault("idle-timeout", 30)
 	v.SetDefault("conn-chan-count", 100)
 	v.SetDefault("keep-alive-time", 10)
 	if err := v.ReadInConfig(); err != nil {
@@ -152,19 +152,21 @@ func acceptWeb(connChan chan<- net.Conn, informChan chan<- struct{}, ctx context
 		webAddr := webConn.RemoteAddr().String()
 		log.Printf("web端连接建立成功: %s", webAddr)
 
-		select {
-		case connChan <- webConn:
+		go func() {
 			select {
-			case informChan <- struct{}{}:
-				log.Printf("已通知主客户端：新web连接（%s）", webAddr)
+			case connChan <- webConn:
+				select {
+				case informChan <- struct{}{}:
+					log.Printf("已通知主客户端：新web连接（%s）", webAddr)
+				default:
+					log.Printf("informChan 已满，无法通知新web连接（%s）", webAddr)
+					_ = webConn.Close()
+				}
 			default:
-				log.Printf("informChan 已满，无法通知新web连接（%s）", webAddr)
+				log.Printf("connChan 已满，关闭新web连接（%s）", webAddr)
 				_ = webConn.Close()
 			}
-		default:
-			log.Printf("connChan 已满，关闭新web连接（%s）", webAddr)
-			_ = webConn.Close()
-		}
+		}()
 	}
 }
 
@@ -198,7 +200,7 @@ func acceptTask(mainListen net.Listener, connChan <-chan net.Conn, wg *sync.Wait
 				}
 				taskID := fmt.Sprintf("task-%d", time.Now().UnixNano())
 				log.Printf("任务配对成功: %s（web: %s, task: %s）", taskID, webConn.RemoteAddr(), taskAddr)
-				go common.TaskHandler(webConn, taskConn, "web", "task", taskID, config.BufferSize*1024*1024)
+				go common.Transform(taskConn, webConn, "task", "web", taskID, config.BufferSize*1024*1024, config.IdleTimeout)
 			case <-time.After(30 * time.Second):
 				log.Printf("任务连接（%s）30秒内无web连接配对，已关闭", taskAddr)
 				_ = taskConn.Close()
