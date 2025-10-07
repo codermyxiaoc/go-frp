@@ -13,7 +13,6 @@ import (
 )
 
 type Config struct {
-	ServerPort    string `mapstructure:"server-port"`
 	ServerIp      string `mapstructure:"server-ip"`
 	LocalPort     string `mapstructure:"local-port"`
 	BufferSize    int    `mapstructure:"buffer-size"`
@@ -29,7 +28,6 @@ func init() {
 	v.SetConfigName("config")
 	v.AddConfigPath(".")
 	v.SetDefault("port", "8090")
-	v.SetDefault("server-port", "8080")
 	v.SetDefault("keep-alive-time", 10)
 	v.SetDefault("buffer-size", 5)
 	v.SetDefault("idle-timeout", 30)
@@ -45,8 +43,33 @@ func init() {
 
 func main() {
 	log.Println("客户端启动，尝试连接服务器...")
+
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, os.Interrupt)
+
+	mainDialer := net.Dialer{Timeout: 10 * time.Second}
+	mainConn, err := mainDialer.Dial("tcp", fmt.Sprintf("%s:%s", config.ServerIp, "11234"))
+	defer func() { _ = mainConn.Close() }()
+	if err != nil {
+		log.Printf("连接服务器主连接失败: %v", err)
+		return
+	}
+	log.Println("成功连接到服务器")
+
+	masterPort := make([]byte, 5)
+	_, err = mainConn.Read(masterPort)
+	if err != nil {
+		log.Printf("读取服务器端口失败: %v", err)
+		return
+	}
+
+	initClient(string(masterPort), signals)
+	log.Println("程序退出")
+}
+
+func initClient(masterAndTaskPort string, signals <-chan os.Signal) {
 	dialer := net.Dialer{Timeout: 10 * time.Second}
-	masterConn, err := dialer.Dial("tcp", fmt.Sprintf("%s:%s", config.ServerIp, config.ServerPort))
+	masterConn, err := dialer.Dial("tcp", fmt.Sprintf("%s:%s", config.ServerIp, masterAndTaskPort))
 	if err != nil {
 		log.Printf("连接服务器失败: %v", err)
 		return
@@ -54,7 +77,7 @@ func main() {
 	log.Printf("成功连接到服务器: %s", masterConn.RemoteAddr())
 
 	go keepAlive(masterConn)
-	go inform(masterConn)
+	go inform(masterConn, masterAndTaskPort)
 
 	defer func() {
 		if err := masterConn.Close(); err != nil {
@@ -63,11 +86,7 @@ func main() {
 			log.Println("主连接已关闭")
 		}
 	}()
-
-	signals := make(chan os.Signal, 1)
-	signal.Notify(signals, os.Interrupt)
 	<-signals
-	log.Println("程序退出")
 }
 
 func keepAlive(masterConn net.Conn) {
@@ -86,8 +105,8 @@ func keepAlive(masterConn net.Conn) {
 	}
 }
 
-func inform(masterConn net.Conn) {
-	buffer := make([]byte, 3)
+func inform(masterConn net.Conn, taskPort string) {
+	buffer := make([]byte, 5)
 	for {
 		if err := masterConn.SetReadDeadline(time.Now().Add(60 * time.Second)); err != nil {
 			log.Printf("设置读取超时失败: %v", err)
@@ -106,14 +125,19 @@ func inform(masterConn net.Conn) {
 		log.Printf("接收到服务器数据: %s, 长度: %d", string(buffer[:read]), read)
 		if read == 3 && string(buffer[:3]) == "new" {
 			log.Println("接收到新任务指令，启动任务处理器")
-			go taskHandler()
+			go taskHandler(taskPort)
+		} else {
+			if read > 0 && string(buffer[:2]) != "pi" {
+				log.Printf("web访问地址: %s", fmt.Sprintf("%s:%s", config.ServerIp, string(buffer[:read])))
+			}
 		}
+
 	}
 }
 
-func taskHandler() {
+func taskHandler(taskPort string) {
 	dialer := net.Dialer{Timeout: 10 * time.Second}
-	serverConn, err := dialer.Dial("tcp", fmt.Sprintf("%s:%s", config.ServerIp, config.ServerPort))
+	serverConn, err := dialer.Dial("tcp", fmt.Sprintf("%s:%s", config.ServerIp, taskPort))
 
 	if err != nil {
 		log.Printf("任务连接服务器失败: %v", err)
