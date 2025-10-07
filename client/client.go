@@ -54,7 +54,7 @@ func main() {
 		log.Printf("连接服务器主连接失败: %v", err)
 		return
 	}
-	log.Println("成功连接到服务器")
+	log.Println("成功连接到服务器主链接")
 
 	masterPort := make([]byte, 5)
 	_, err = mainConn.Read(masterPort)
@@ -64,7 +64,7 @@ func main() {
 	}
 
 	initClient(string(masterPort), signals)
-	log.Println("程序退出")
+	log.Println("客户端程序退出")
 }
 
 func initClient(masterAndTaskPort string, signals <-chan os.Signal) {
@@ -128,7 +128,7 @@ func inform(masterConn net.Conn, taskPort string) {
 			go taskHandler(taskPort)
 		} else {
 			if read > 0 && string(buffer[:2]) != "pi" {
-				log.Printf("web访问地址: %s", fmt.Sprintf("%s:%s", config.ServerIp, string(buffer[:read])))
+				log.Printf("web访问地址: http://%s:%s", config.ServerIp, string(buffer[:read]))
 			}
 		}
 

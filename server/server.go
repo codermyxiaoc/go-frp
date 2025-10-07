@@ -41,42 +41,23 @@ func init() {
 func main() {
 	log.Println("=== 启动服务端 ===")
 	mainListen, err := net.Listen("tcp", ":11234")
+	defer func() { _ = mainListen.Close() }()
 	if err != nil {
-		log.Printf("连接服务监听失败: %v", err)
+		log.Printf("主服务器监听失败: %v", err)
 		return
 	}
 	for {
 		log.Println("等待客户端连接主服务...")
-		portChan := make(chan int, 1)
 		mainConn, err := mainListen.Accept()
 		if err != nil {
-			log.Printf("监听主服务连接失败: %v", err)
+			log.Printf("客户端连接主服务失败: %v", err)
 			continue
 		}
-		go func() {
-			defer func() {
-				close(portChan)
-				_ = mainConn.Close()
-			}()
-
-			go initService(portChan)
-			select {
-			case <-time.After(30 * time.Second):
-				log.Println("等待客户端主服务连接超时")
-				return
-			case port := <-portChan:
-				n, err := mainConn.Write([]byte(fmt.Sprintf("%d", port)))
-				if err != nil {
-					log.Printf("发送端口失败指令失败（%s）: %v", mainConn.RemoteAddr(), err)
-				}
-				log.Printf("发送端口成功指令成功（%s）: 共 %d 字节", mainConn.RemoteAddr(), n)
-				return
-			}
-		}()
+		go initService(mainConn)
 	}
 }
 
-func initService(portChan chan<- int) {
+func initService(mainConn net.Conn) {
 	exitChan := make(chan struct{})
 
 	log.Println("=== 开始初始化客户端连接服务端 ===")
@@ -84,7 +65,15 @@ func initService(portChan chan<- int) {
 	port := masterListen.Addr().(*net.TCPAddr).Port
 	log.Printf("服务端监听启动成功: :%d", port)
 
-	portChan <- port
+	_, err = mainConn.Write([]byte(fmt.Sprintf("%d", port)))
+	if err != nil {
+		log.Printf("发送master连接端口失败指令失败（%s）: %v", mainConn.RemoteAddr(), err)
+		_ = mainConn.Close()
+		_ = masterListen.Close()
+		return
+	}
+	_ = mainConn.Close()
+	log.Printf("成发送master连接端口[%d]功指令成功（%s）", port, mainConn.RemoteAddr())
 
 	masterConn, err := masterListen.Accept()
 	if err != nil {
