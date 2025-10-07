@@ -200,7 +200,7 @@ func acceptTask(mainListen net.Listener, connChan <-chan net.Conn, wg *sync.Wait
 				}
 				taskID := fmt.Sprintf("task-%d", time.Now().UnixNano())
 				log.Printf("任务配对成功: %s（web: %s, task: %s）", taskID, webConn.RemoteAddr(), taskAddr)
-				go common.Transform(taskConn, webConn, "task", "web", taskID, config.BufferSize*1024*1024, config.IdleTimeout)
+				go common.Transform(taskConn, webConn, "task", "web", taskID, config.BufferSize*1024, config.IdleTimeout)
 			case <-time.After(30 * time.Second):
 				log.Printf("任务连接（%s）30秒内无web连接配对，已关闭", taskAddr)
 				_ = taskConn.Close()

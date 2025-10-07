@@ -1,11 +1,12 @@
 #commion
-buffer-size: 5 #mb
+buffer-size: 512 #kb
 keep-alive-time: 10 #s
 server-port: 8080
 idle-timeout: 30 #s
+
 #server
-web-port: 8088
-conn-chan-count: 100
+web-port: 8000
+conn-chan-count: 200
 
 #client
 server-ip: 127.0.0.1

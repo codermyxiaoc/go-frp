@@ -131,7 +131,7 @@ func taskHandler() {
 	taskID := fmt.Sprintf("task-%d", time.Now().UnixNano())
 	log.Printf("启动任务处理: %s", taskID)
 
-	common.Transform(localConn, serverConn, "local", "server", taskID, config.BufferSize*1024*1024, config.IdleTimeout)
+	go common.Transform(localConn, serverConn, "local", "server", taskID, config.BufferSize*1024, config.IdleTimeout)
 
 	log.Printf("任务处理完成: %s", taskID)
 }
