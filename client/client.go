@@ -18,6 +18,7 @@ type Config struct {
 	BufferSize    int    `mapstructure:"buffer-size"`
 	KeepAliveTime int    `mapstructure:"keep-alive-time"`
 	IdleTimeout   int64  `mapstructure:"idle-timeout"`
+	Secret        string `mapstructure:"secret"`
 }
 
 var config Config
@@ -32,6 +33,7 @@ func init() {
 	v.SetDefault("buffer-size", 5)
 	v.SetDefault("idle-timeout", 30)
 	v.SetDefault("server-ip", "127.0.0.1")
+	v.SetDefault("secret", "secret")
 	if err := v.ReadInConfig(); err != nil {
 		log.Printf("读取配置文件失败: %v", err)
 	}
@@ -42,6 +44,7 @@ func init() {
 }
 
 func main() {
+	defer log.Println("客户端程序退出")
 	log.Println("客户端启动，尝试连接服务器...")
 
 	signals := make(chan os.Signal, 1)
@@ -56,15 +59,23 @@ func main() {
 	}
 	log.Println("成功连接到服务器主链接")
 
+	_, err = mainConn.Write([]byte(config.Secret + "\n"))
+	if err != nil {
+		log.Printf("发送密钥失败: %v", err)
+		return
+	}
 	masterPort := make([]byte, 5)
 	_, err = mainConn.Read(masterPort)
 	if err != nil {
 		log.Printf("读取服务器端口失败: %v", err)
 		return
 	}
-
+	if string(masterPort) == "00000" {
+		log.Printf("密钥错误[%s]", config.Secret)
+		return
+	}
 	initClient(string(masterPort), signals)
-	log.Println("客户端程序退出")
+
 }
 
 func initClient(masterAndTaskPort string, signals <-chan os.Signal) {

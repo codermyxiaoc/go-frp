@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -13,10 +14,11 @@ import (
 )
 
 type Config struct {
-	ConnChanCount int   `mapstructure:"conn-chan-count"`
-	IdleTimeout   int64 `mapstructure:"idle-timeout"`
-	BufferSize    int   `mapstructure:"buffer-size"`
-	KeepAliveTime int   `mapstructure:"keep-alive-time"`
+	ConnChanCount int    `mapstructure:"conn-chan-count"`
+	IdleTimeout   int64  `mapstructure:"idle-timeout"`
+	BufferSize    int    `mapstructure:"buffer-size"`
+	KeepAliveTime int    `mapstructure:"keep-alive-time"`
+	Secret        string `mapstructure:"secret"`
 }
 
 var config Config
@@ -30,6 +32,7 @@ func init() {
 	v.SetDefault("idle-timeout", 30)
 	v.SetDefault("conn-chan-count", 100)
 	v.SetDefault("keep-alive-time", 10)
+	v.SetDefault("secret", "secret")
 	if err := v.ReadInConfig(); err != nil {
 		log.Printf("读取配置文件失败: %v", err)
 	}
@@ -53,7 +56,36 @@ func main() {
 			log.Printf("客户端连接主服务失败: %v", err)
 			continue
 		}
-		go initService(mainConn)
+
+		// 密钥验证
+		go func() {
+			defer func() {
+				err := recover()
+				if err != nil {
+					log.Println(err)
+					_ = mainConn.Close()
+				}
+			}()
+			err = mainConn.SetReadDeadline(time.Now().Add(10 * time.Second))
+			if err != nil {
+				panic(errors.New(fmt.Sprintf("设置密钥读取超时失败: %v", err)))
+			}
+			reader := bufio.NewReader(mainConn)
+			clientSecret, err := reader.ReadString(byte('\n'))
+			if err != nil {
+				panic(errors.New(fmt.Sprintf("读取客户端密钥失败: %v", err)))
+			}
+			if clientSecret[0:len(config.Secret)] != config.Secret {
+				_, _ = mainConn.Write([]byte("00000"))
+				panic(fmt.Sprintf("密钥错误[%s]（%s）", clientSecret, mainConn.RemoteAddr().String()))
+			}
+			err = mainConn.SetDeadline(time.Time{})
+			if err != nil {
+				panic(errors.New(fmt.Sprintf("重置main连接超时失败: %v", err)))
+			}
+			go initService(mainConn)
+		}()
+
 	}
 }
 
@@ -73,7 +105,7 @@ func initService(mainConn net.Conn) {
 		return
 	}
 	_ = mainConn.Close()
-	log.Printf("成发送master连接端口[%d]功指令成功（%s）", port, mainConn.RemoteAddr())
+	log.Printf("成发送master连接端口[%d]指令成功（%s）", port, mainConn.RemoteAddr())
 
 	masterConn, err := masterListen.Accept()
 	if err != nil {
