@@ -1,11 +1,10 @@
 #commion
 buffer-size: 512 #kb
 keep-alive-time: 10 #s
-server-port: 8080
 idle-timeout: 30 #s
+secret: 1234567890
 
 #server
-web-port: 8000
 conn-chan-count: 200
 
 #client
