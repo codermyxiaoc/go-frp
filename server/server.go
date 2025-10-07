@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/viper"
 	"log"
 	"net"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -71,7 +72,7 @@ func main() {
 				panic(errors.New(fmt.Sprintf("设置密钥读取超时失败: %v", err)))
 			}
 			reader := bufio.NewReader(mainConn)
-			clientSecret, err := reader.ReadString(byte('\n'))
+			clientSecret, err := reader.ReadString(common.DELIM)
 			if err != nil {
 				panic(errors.New(fmt.Sprintf("读取客户端密钥失败: %v", err)))
 			}
@@ -97,7 +98,7 @@ func initService(mainConn net.Conn) {
 	port := masterListen.Addr().(*net.TCPAddr).Port
 	log.Printf("服务端监听启动成功: :%d", port)
 
-	_, err = mainConn.Write([]byte(fmt.Sprintf("%d", port)))
+	_, err = mainConn.Write([]byte(strconv.Itoa(port)))
 	if err != nil {
 		log.Printf("发送master连接端口失败指令失败（%s）: %v", mainConn.RemoteAddr(), err)
 		_ = mainConn.Close()
@@ -157,7 +158,7 @@ func inform(masterConn net.Conn, informChan <-chan struct{}, exitChan chan<- str
 				log.Printf("informChan 已关闭，inform 协程退出")
 				return
 			}
-			n, err := masterConn.Write([]byte("new"))
+			n, err := masterConn.Write([]byte(common.NEW_TASK))
 			if err != nil {
 				log.Printf("发送new指令失败（%s）: %v", remoteAddr, err)
 				return
@@ -165,7 +166,7 @@ func inform(masterConn net.Conn, informChan <-chan struct{}, exitChan chan<- str
 			log.Printf("发送new指令成功（%s）: 共 %d 字节", remoteAddr, n)
 
 		case <-ticker.C:
-			n, err := masterConn.Write([]byte("pi"))
+			n, err := masterConn.Write([]byte(common.PI))
 			if err != nil {
 				log.Printf("发送心跳包失败（%s）: %v", remoteAddr, err)
 				return
@@ -193,7 +194,7 @@ func acceptWeb(connChan chan<- net.Conn, informChan chan<- struct{}, ctx context
 
 	webPort := webListen.Addr().(*net.TCPAddr).Port
 	log.Printf("web端监听启动成功: :%d", webPort)
-	_, err = masterConn.Write([]byte(fmt.Sprintf("%d", webPort)))
+	_, err = masterConn.Write([]byte(fmt.Sprintf(":%d%c", webPort, common.DELIM)))
 	if err != nil {
 		log.Printf("发送web端口失败指令失败（%s）: %v", masterConn.RemoteAddr(), err)
 		_ = masterConn.Close()

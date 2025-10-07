@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
 	"frp-project/common"
@@ -59,7 +60,7 @@ func main() {
 	}
 	log.Println("成功连接到服务器主链接")
 
-	_, err = mainConn.Write([]byte(config.Secret + "\n"))
+	_, err = mainConn.Write(append([]byte(config.Secret), common.DELIM))
 	if err != nil {
 		log.Printf("发送密钥失败: %v", err)
 		return
@@ -107,9 +108,9 @@ func keepAlive(masterConn net.Conn) {
 	for {
 		select {
 		case <-ticker.C:
-			_, err := masterConn.Write([]byte("pi"))
+			_, err := masterConn.Write([]byte(common.PI))
 			if err != nil {
-				log.Printf("发送心跳包失败: %v，尝试重连...", err)
+				log.Printf("发送心跳包失败: %v", err)
 				return
 			}
 		}
@@ -117,13 +118,13 @@ func keepAlive(masterConn net.Conn) {
 }
 
 func inform(masterConn net.Conn, taskPort string) {
-	buffer := make([]byte, 5)
+	reader := bufio.NewReader(masterConn)
 	for {
 		if err := masterConn.SetReadDeadline(time.Now().Add(60 * time.Second)); err != nil {
 			log.Printf("设置读取超时失败: %v", err)
 			return
 		}
-		read, err := masterConn.Read(buffer)
+		readString, err := reader.ReadString(common.DELIM)
 		if err != nil {
 			var netErr net.Error
 			if errors.As(err, &netErr) && netErr.Timeout() {
@@ -133,14 +134,20 @@ func inform(masterConn net.Conn, taskPort string) {
 			log.Printf("读取数据失败: %v", err)
 			return
 		}
-		log.Printf("接收到服务器数据: %s, 长度: %d", string(buffer[:read]), read)
-		if read == 3 && string(buffer[:3]) == "new" {
+		n := len(readString)
+		if n == 0 {
+			continue
+		}
+		log.Printf("接收到服务器数据: %s, 长度: %d", readString[:n-1], n)
+		switch {
+		case n == common.PI_LEN && readString == common.PI:
+			continue
+		case n == common.NEW_TASK_LEN && readString[:common.NEW_TASK_LEN] == common.NEW_TASK:
 			log.Println("接收到新任务指令，启动任务处理器")
 			go taskHandler(taskPort)
-		} else {
-			if read > 0 && string(buffer[:2]) != "pi" {
-				log.Printf("web访问地址: http://%s:%s", config.ServerIp, string(buffer[:read]))
-			}
+			continue
+		case readString[:1] == ":":
+			log.Printf("web访问地址: http://%s%s", config.ServerIp, readString[:n-1])
 		}
 
 	}
