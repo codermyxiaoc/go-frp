@@ -176,6 +176,4 @@ func taskHandler(taskPort string) {
 	log.Printf("启动任务处理: %s", taskID)
 
 	go common.Transform(localConn, serverConn, "local", "server", taskID, config.BufferSize*1024, config.IdleTimeout)
-
-	log.Printf("任务处理完成: %s", taskID)
 }
