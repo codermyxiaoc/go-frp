@@ -113,13 +113,13 @@ local-port: 8090      # 本地服务端口
 
 ### 压力测试
 
-- **并发性能**：1秒500线程1000次循环，全部成功
+- **并发性能**：1秒300线程10000次循环，300w并发全部成功，吞吐量稳定30000/sec
 - **稳定性**：长时间运行无内存泄漏
 - **大文件传输**：支持 GB 级别文件稳定传输
 
 ### 测试截图
 
-<div align="center"> <img src="./images/wechat_2025-10-06_114438_201.png" width="400"> <img src="./images/wechat_2025-10-06_114625_143.png" width="400"> <br> <em>并发压力测试结果</em> </div><div align="center"> <img src="./images/wechat_2025-10-04_234208_609.png" width="400"> <br> <em>大文件下载测试</em> </div>
+<div align="center"> <img src="./images/wechat_2025-10-08_194845_505.png" width="400"> <img src="./images/wechat_2025-10-08_195218_546.png" width="400"> <br> <em>并发压力测试结果</em> </div><div align="center"> <img src="./images/wechat_2025-10-04_234208_609.png" width="400"> <br> <em>大文件下载测试</em> </div>
 
 ## 🛠️ 使用场景
 
