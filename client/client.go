@@ -20,6 +20,7 @@ type Config struct {
 	KeepAliveTime int    `mapstructure:"keep-alive-time"`
 	IdleTimeout   int64  `mapstructure:"idle-timeout"`
 	Secret        string `mapstructure:"secret"`
+	MainPort      string `mapstructure:"main-port"`
 }
 
 var config Config
@@ -35,6 +36,7 @@ func init() {
 	v.SetDefault("idle-timeout", 30)
 	v.SetDefault("server-ip", "127.0.0.1")
 	v.SetDefault("secret", "secret")
+	v.SetDefault("main-port", "11234")
 	if err := v.ReadInConfig(); err != nil {
 		log.Printf("读取配置文件失败: %v", err)
 	}
@@ -52,7 +54,7 @@ func main() {
 	signal.Notify(signals, os.Interrupt)
 
 	mainDialer := net.Dialer{Timeout: 10 * time.Second}
-	mainConn, err := mainDialer.Dial("tcp", fmt.Sprintf("%s:%s", config.ServerIp, "11234"))
+	mainConn, err := mainDialer.Dial("tcp", fmt.Sprintf("%s:%s", config.ServerIp, config.MainPort))
 	defer func() { _ = mainConn.Close() }()
 	if err != nil {
 		log.Printf("连接服务器主连接失败: %v", err)
