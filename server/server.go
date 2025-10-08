@@ -97,6 +97,11 @@ func initService(mainConn net.Conn) {
 
 	log.Println("=== 开始初始化客户端连接服务端 ===")
 	masterListen, err := net.Listen("tcp", ":0")
+	if err != nil {
+		log.Printf("master连接监听启动失败: %v", err)
+		_ = mainConn.Close()
+		return
+	}
 	port := masterListen.Addr().(*net.TCPAddr).Port
 	log.Printf("服务端master连接监听启动成功: %d", port)
 
