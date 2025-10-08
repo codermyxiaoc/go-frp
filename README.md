@@ -1,11 +1,12 @@
 # Golang 内网穿透工具 - 高性能多协程网络穿透解决方案
 
-https://img.shields.io/badge/Go-1.19+-blue.svg
-https://img.shields.io/badge/License-MIT-green.svg
+![](https://img.shields.io/badge/Go-1.19+-blue.svg)![](https://img.shields.io/badge/License-MIT-green.svg)
 
 一个基于 Golang 开发的高性能内网穿透工具，专为稳定传输和大文件传输优化设计。
 
 ## ✨ 核心特性
+
+### 👍Main分支 支持多客户端多端口穿透
 
 ### 🚀 性能优化
 
@@ -23,7 +24,6 @@ https://img.shields.io/badge/License-MIT-green.svg
 
 - **YAML 配置文件** - 支持手动配置各项参数
 - **模块化设计** - 各组件参数可独立调整
-- **实时生效** - 配置变更无需重启服务
 
 ## 🏗️ 架构说明
 
@@ -90,13 +90,13 @@ yaml
 
 ```
 # 通用配置
-buffer-size: 5        # 缓冲区大小(MB)
+buffer-size: 512      # 缓冲区大小(kb)
 keep-alive-time: 10   # 心跳包间隔(秒)
 server-port: 8080     # 服务端端口
 idle-timeout: 30      # 长连接超时时间(秒)
 
 # 服务端配置
-web-port: 8088        # Web 管理端口
+main-port: 8088       # 主服务端口
 conn-chan-count: 100  # 连接通道大小
 
 # 客户端配置  
@@ -110,7 +110,7 @@ local-port: 8090      # 本地服务端口
 
 ### 压力测试
 
-- **并发性能**：1秒500线程10次循环，全部成功
+- **并发性能**：1秒500线程1000次循环，全部成功
 - **稳定性**：长时间运行无内存泄漏
 - **大文件传输**：支持 GB 级别文件稳定传输
 

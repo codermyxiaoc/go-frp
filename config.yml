@@ -5,6 +5,7 @@ idle-timeout: 30 #s
 secret: 1234567890
 
 #server
+main-port: 11234
 conn-chan-count: 200
 
 #client

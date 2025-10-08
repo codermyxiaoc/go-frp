@@ -20,6 +20,7 @@ type Config struct {
 	BufferSize    int    `mapstructure:"buffer-size"`
 	KeepAliveTime int    `mapstructure:"keep-alive-time"`
 	Secret        string `mapstructure:"secret"`
+	MainPort      string `mapstructure:"main-port"`
 }
 
 var config Config
@@ -34,6 +35,7 @@ func init() {
 	v.SetDefault("conn-chan-count", 100)
 	v.SetDefault("keep-alive-time", 10)
 	v.SetDefault("secret", "secret")
+	v.SetDefault("main-port", "11234")
 	if err := v.ReadInConfig(); err != nil {
 		log.Printf("读取配置文件失败: %v", err)
 	}
@@ -44,7 +46,7 @@ func init() {
 
 func main() {
 	log.Println("=== 启动服务端 ===")
-	mainListen, err := net.Listen("tcp", ":11234")
+	mainListen, err := net.Listen("tcp", fmt.Sprintf(":%s", config.MainPort))
 	defer func() { _ = mainListen.Close() }()
 	if err != nil {
 		log.Printf("主服务器监听失败: %v", err)
@@ -96,7 +98,7 @@ func initService(mainConn net.Conn) {
 	log.Println("=== 开始初始化客户端连接服务端 ===")
 	masterListen, err := net.Listen("tcp", ":0")
 	port := masterListen.Addr().(*net.TCPAddr).Port
-	log.Printf("服务端监听启动成功: :%d", port)
+	log.Printf("服务端master连接监听启动成功: %d", port)
 
 	_, err = mainConn.Write([]byte(strconv.Itoa(port)))
 	if err != nil {
