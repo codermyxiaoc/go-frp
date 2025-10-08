@@ -1,9 +1,10 @@
 # Golang 内网穿透工具 - 高性能多协程网络穿透解决方案
 
-https://img.shields.io/badge/Go-1.19+-blue.svg
-https://img.shields.io/badge/License-MIT-green.svg
+![](https://img.shields.io/badge/Go-1.19+-blue.svg)![](https://img.shields.io/badge/License-MIT-green.svg)
+
 
 一个基于 Golang 开发的高性能内网穿透工具，专为稳定传输和大文件传输优化设计。
+main分支是第一版只支持单客户端连接比较适合学习，需要多链接、密钥认证等请到master分支
 
 ## ✨ 核心特性
 
