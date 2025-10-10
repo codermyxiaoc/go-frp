@@ -4,12 +4,11 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
-	"frp-project/common"
 	"github.com/spf13/viper"
+	"go-frp/common"
 	"log"
 	"net"
-	"os"
-	"os/signal"
+	"sync"
 	"time"
 )
 
@@ -50,9 +49,6 @@ func main() {
 	defer log.Println("客户端程序退出")
 	log.Println("客户端启动，尝试连接服务器...")
 
-	signals := make(chan os.Signal, 1)
-	signal.Notify(signals, os.Interrupt)
-
 	mainDialer := net.Dialer{Timeout: 10 * time.Second}
 	mainConn, err := mainDialer.Dial("tcp", fmt.Sprintf("%s:%s", config.ServerIp, config.MainPort))
 	defer func() { _ = mainConn.Close() }()
@@ -77,11 +73,10 @@ func main() {
 		log.Printf("密钥错误[%s]", config.Secret)
 		return
 	}
-	initClient(string(masterPort), signals)
-
+	initClient(string(masterPort))
 }
 
-func initClient(masterAndTaskPort string, signals <-chan os.Signal) {
+func initClient(masterAndTaskPort string) {
 	dialer := net.Dialer{Timeout: 10 * time.Second}
 	masterConn, err := dialer.Dial("tcp", fmt.Sprintf("%s:%s", config.ServerIp, masterAndTaskPort))
 	if err != nil {
@@ -90,9 +85,13 @@ func initClient(masterAndTaskPort string, signals <-chan os.Signal) {
 	}
 	log.Printf("成功连接到服务器: %s", masterConn.RemoteAddr())
 
-	go keepAlive(masterConn)
-	go inform(masterConn, masterAndTaskPort)
+	var wg sync.WaitGroup
+	wg.Add(2)
 
+	go keepAlive(masterConn, &wg)
+	go inform(masterConn, masterAndTaskPort, &wg)
+
+	wg.Wait()
 	defer func() {
 		if err := masterConn.Close(); err != nil {
 			log.Printf("关闭主连接失败: %v", err)
@@ -100,12 +99,14 @@ func initClient(masterAndTaskPort string, signals <-chan os.Signal) {
 			log.Println("主连接已关闭")
 		}
 	}()
-	<-signals
 }
 
-func keepAlive(masterConn net.Conn) {
+func keepAlive(masterConn net.Conn, wg *sync.WaitGroup) {
 	ticker := time.NewTicker(time.Duration(config.KeepAliveTime) * time.Second)
-	defer ticker.Stop()
+	defer func() {
+		ticker.Stop()
+		wg.Done()
+	}()
 
 	for {
 		select {
@@ -119,7 +120,8 @@ func keepAlive(masterConn net.Conn) {
 	}
 }
 
-func inform(masterConn net.Conn, taskPort string) {
+func inform(masterConn net.Conn, taskPort string, wg *sync.WaitGroup) {
+	defer wg.Done()
 	reader := bufio.NewReader(masterConn)
 	for {
 		if err := masterConn.SetReadDeadline(time.Now().Add(60 * time.Second)); err != nil {
