@@ -1,4 +1,4 @@
-module frp-project
+module go-frp
 
 go 1.24.2
 
