@@ -78,7 +78,7 @@ func main() {
 			if err != nil {
 				panic(errors.New(fmt.Sprintf("读取客户端密钥失败: %v", err)))
 			}
-			if clientSecret[0:len(config.Secret)] != config.Secret {
+			if len(config.Secret) != (len(clientSecret)-1) || clientSecret[0:len(config.Secret)] != config.Secret {
 				_, _ = mainConn.Write([]byte("00000"))
 				panic(fmt.Sprintf("密钥错误[%s]（%s）", clientSecret, mainConn.RemoteAddr().String()))
 			}
