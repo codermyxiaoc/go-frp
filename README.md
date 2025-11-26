@@ -1,7 +1,7 @@
 # Golang 内网穿透工具 - 高性能多协程网络穿透解决方案
 
 ![](https://img.shields.io/badge/Go-1.19+-blue.svg)![](https://img.shields.io/badge/License-MIT-green.svg)
-
+一个基于 go 开发的高性能内网穿透工具，专为稳定传输和大文件传输优化设计。
 一个基于 Golang 开发的高性能内网穿透工具，专为稳定传输和大文件传输优化设计。
 
 ## ✨ 核心特性
@@ -62,7 +62,7 @@ text
 bash
 
 ```
-# 默认 Web 服务端口：8088，Client 服务端口：8080
+# 默认 Web 服务端口：随机，Server 服务main端口默认：12345
 go run server.go
 ```
 
@@ -73,7 +73,7 @@ go run server.go
 bash
 
 ```
-# 默认映射本地 8090 端口服务
+# 默认映射本地 8090等多个端口服务
 go run client.go
 ```
 
@@ -92,19 +92,29 @@ go run client.go
 yaml
 
 ```
-# 通用配置
-buffer-size: 512      # 缓冲区大小(kb)
-keep-alive-time: 10   # 心跳包间隔(秒)
-server-port: 8080     # 服务端端口
-idle-timeout: 30      # 长连接超时时间(秒)
+#通用配置
+buffer-size: 512    			   # 缓冲区大小(kb)
+keep-alive-time: 10                 # 心跳包间隔(秒)
+secret: 1234567890                  # 连接密钥
 
-# 服务端配置
-main-port: 8088       # 主服务端口
-conn-chan-count: 100  # 连接通道大小
+#连接配置
+enable-long-connection: true        # 是否开启长连接
+connection-timeout: 30              # 未开启长连接(长时间连接没有传输数据断开连接)超时时间(秒)
 
-# 客户端配置  
-server-ip: 127.0.0.1  # 服务端 IP 地址
-local-port: 8090      # 本地服务端口
+#限流配置
+enable-limit: false                 #是否开启限流
+limit-buffer-size: 1024             #限流大小(kb)
+
+#服务端配置
+main-port: 12345                    #服务端主连接
+conn-chan-count: 200                #每一个子服务链接通道大小(并发)
+
+#客户端配置
+server-ip: 127.0.0.1                #服务端地址
+local-port:                         #本地服务列表
+  - 8090
+  - 8091
+  - 80
 ```
 
 
