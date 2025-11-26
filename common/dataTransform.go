@@ -1,14 +1,25 @@
 package common
 
 import (
+	"github.com/sirupsen/logrus"
+	"golang.org/x/time/rate"
 	"io"
-	"log"
 	"net"
 	"strings"
 	"sync"
 )
 
-func Transform(dstConn, srcConn net.Conn, dstName, srcName, taskID string, bufferSize int, idleTimeout int64) {
+type TransformConfig struct {
+	DstName              string
+	SrcName              string
+	BufferSize           int
+	EnableLongConnection bool
+	ConnectionTimeout    int64
+	EnableLimit          bool
+	LimitBufferSize      int
+}
+
+func Transform(dstConn, srcConn net.Conn, config TransformConfig) {
 	var closeOnce sync.Once
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -16,19 +27,23 @@ func Transform(dstConn, srcConn net.Conn, dstName, srcName, taskID string, buffe
 	closeConn := func() {
 		_ = dstConn.Close()
 		_ = srcConn.Close()
-		log.Printf("[%s] %s<->%s 连接已关闭", taskID, dstName, srcName)
 	}
 
-	// 长连接监听超时
-	callback := func() {
-		log.Printf("[%s] %s<->%s 连接超时", taskID, dstName, srcName)
-		closeConn()
+	var monitoredDst io.ReadWriter = dstConn
+	var monitoredSrc io.ReadWriter = srcConn
+
+	if config.EnableLongConnection {
+		session := NewSession(config.ConnectionTimeout, &closeConn)
+		defer session.Close()
+		monitoredDst = NewMonitored(&dstConn, session)
+		monitoredSrc = NewMonitored(&srcConn, session)
+		go session.monitorIdle()
 	}
-	session := NewSession(idleTimeout, &callback)
-	defer session.Close()
-	monitoredDst := NewMonitored(&dstConn, session)
-	monitoredSrc := NewMonitored(&srcConn, session)
-	go session.monitorIdle()
+
+	if config.EnableLimit {
+		monitoredDst = NewRateLimited(monitoredDst, rate.NewLimiter(rate.Limit(config.LimitBufferSize), config.LimitBufferSize))
+		monitoredSrc = NewRateLimited(monitoredSrc, rate.NewLimiter(rate.Limit(config.LimitBufferSize), config.LimitBufferSize))
+	}
 
 	go func() {
 		defer func() {
@@ -36,13 +51,12 @@ func Transform(dstConn, srcConn net.Conn, dstName, srcName, taskID string, buffe
 			closeOnce.Do(closeConn)
 		}()
 
-		written, err := io.CopyBuffer(monitoredDst, monitoredSrc, make([]byte, bufferSize))
+		_, err := io.CopyBuffer(monitoredDst, monitoredSrc, make([]byte, config.BufferSize))
 		if err != nil {
 			if !IsClosedError(err) {
-				log.Printf("[%s] %s->%s 转发异常: %v", taskID, dstName, srcName, err)
+				logrus.Errorf("%s->%s 转发异常: %v", config.DstName, config.SrcName, err)
 			}
 		}
-		log.Printf("[%s] %s->%s 转发完成，共 %d 字节", taskID, srcName, dstName, written)
 	}()
 
 	go func() {
@@ -51,17 +65,14 @@ func Transform(dstConn, srcConn net.Conn, dstName, srcName, taskID string, buffe
 			closeOnce.Do(closeConn)
 		}()
 
-		written, err := io.CopyBuffer(monitoredSrc, monitoredDst, make([]byte, bufferSize))
+		_, err := io.CopyBuffer(monitoredSrc, monitoredDst, make([]byte, config.BufferSize))
 		if err != nil {
 			if !IsClosedError(err) {
-				log.Printf("[%s] %s->%s 转发异常: %v", taskID, dstName, srcName, err)
+				logrus.Errorf("%s->%s 转发异常: %v", config.DstName, config.SrcName, err)
 			}
 		}
-		log.Printf("[%s] %s->%s 转发完成，共 %d 字节", taskID, dstName, srcName, written)
 	}()
-
 	wg.Wait()
-	log.Printf("[%s] %s<->%s 任务处理完成", taskID, dstName, srcName)
 }
 
 func IsClosedError(err error) bool {

@@ -7,22 +7,22 @@ import (
 )
 
 type Session struct {
-	mu           sync.Mutex
-	lastActivity int64
-	idleTimeout  int64
-	closeChan    chan struct{}
-	rollback     *func()
-	rollbackOnce sync.Once
-	taskId       string
+	mu                sync.Mutex
+	lastActivity      int64
+	connectionTimeout int64
+	closeChan         chan struct{}
+	rollback          *func()
+	rollbackOnce      sync.Once
+	taskId            string
 }
 
-func NewSession(idleTimeout int64, rollback *func()) *Session {
+func NewSession(connectionTimeout int64, rollback *func()) *Session {
 	return &Session{
-		idleTimeout:  idleTimeout,
-		closeChan:    make(chan struct{}),
-		rollbackOnce: sync.Once{},
-		lastActivity: time.Now().Unix(),
-		rollback:     rollback,
+		connectionTimeout: connectionTimeout,
+		closeChan:         make(chan struct{}),
+		rollbackOnce:      sync.Once{},
+		lastActivity:      time.Now().Unix(),
+		rollback:          rollback,
 	}
 }
 
@@ -36,7 +36,7 @@ func (session *Session) monitorIdle() {
 			session.mu.Lock()
 			idleTime := lockBeforeTime - session.lastActivity
 			session.mu.Unlock()
-			if idleTime > session.idleTimeout {
+			if idleTime > session.connectionTimeout {
 				session.rollbackOnce.Do(*session.rollback)
 				return
 			}

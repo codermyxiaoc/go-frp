@@ -4,15 +4,31 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="ef4b4717-2efd-4a25-a202-5c34eb8f1b06" name="更改" comment="">
-      <change beforePath="$PROJECT_DIR$/.idea/.gitignore" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/vcs.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/vcs.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/server/server.go" beforeDir="false" afterPath="$PROJECT_DIR$/server/server.go" afterDir="false" />
+    <list default="true" id="ef4b4717-2efd-4a25-a202-5c34eb8f1b06" name="更改" comment="修改密钥认证bug">
+      <change afterPath="$PROJECT_DIR$/common/limit.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/common/log.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/client/client.go" beforeDir="false" afterPath="$PROJECT_DIR$/client/main.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/common/const.go" beforeDir="false" afterPath="$PROJECT_DIR$/common/const.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/common/dataTransform.go" beforeDir="false" afterPath="$PROJECT_DIR$/common/dataTransform.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/common/monitored.go" beforeDir="false" afterPath="$PROJECT_DIR$/common/monitored.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/config.yml" beforeDir="false" afterPath="$PROJECT_DIR$/config.yml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/go.mod" beforeDir="false" afterPath="$PROJECT_DIR$/go.mod" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/go.sum" beforeDir="false" afterPath="$PROJECT_DIR$/go.sum" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/server/server.go" beforeDir="false" afterPath="$PROJECT_DIR$/server/main.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
     <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="FileTemplateManagerImpl">
+    <option name="RECENT_TEMPLATES">
+      <list>
+        <option value="Go File" />
+      </list>
+    </option>
   </component>
   <component name="GOROOT" url="file://$USER_HOME$/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.2.windows-amd64" />
   <component name="Git.Settings">
@@ -32,8 +48,12 @@
   </component>
   <component name="PropertiesComponent">{
   &quot;keyToString&quot;: {
+    &quot;DefaultGoTemplateProperty&quot;: &quot;Go File&quot;,
     &quot;Go 构建.go build client.go.executor&quot;: &quot;Run&quot;,
-    &quot;Go 构建.go build server.go.executor&quot;: &quot;Debug&quot;,
+    &quot;Go 构建.go build go-frp.executor&quot;: &quot;Run&quot;,
+    &quot;Go 构建.go build main.go (1).executor&quot;: &quot;Run&quot;,
+    &quot;Go 构建.go build main.go.executor&quot;: &quot;Run&quot;,
+    &quot;Go 构建.go build server.go.executor&quot;: &quot;Run&quot;,
     &quot;RunOnceActivity.OpenProjectViewOnStart&quot;: &quot;true&quot;,
     &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
     &quot;RunOnceActivity.go.formatter.settings.were.checked&quot;: &quot;true&quot;,
@@ -50,29 +70,29 @@
     &quot;settings.editor.selected.configurable&quot;: &quot;go.sdk&quot;
   }
 }</component>
-  <component name="RunManager" selected="Go 构建.go build client.go">
-    <configuration name="go build client.go" type="GoApplicationRunConfiguration" factoryName="Go Application" temporary="true" nameIsGenerated="true">
+  <component name="RunManager" selected="Go 构建.go build main.go">
+    <configuration name="go build main.go (1)" type="GoApplicationRunConfiguration" factoryName="Go Application" temporary="true" nameIsGenerated="true">
       <module name="go-frp" />
       <working_directory value="$PROJECT_DIR$" />
       <kind value="FILE" />
       <package value="go-frp" />
       <directory value="$PROJECT_DIR$" />
-      <filePath value="$PROJECT_DIR$/client/client.go" />
+      <filePath value="$PROJECT_DIR$/client/main.go" />
       <method v="2" />
     </configuration>
-    <configuration name="go build server.go" type="GoApplicationRunConfiguration" factoryName="Go Application" temporary="true" nameIsGenerated="true">
+    <configuration name="go build main.go" type="GoApplicationRunConfiguration" factoryName="Go Application" temporary="true" nameIsGenerated="true">
       <module name="go-frp" />
       <working_directory value="$PROJECT_DIR$" />
       <kind value="FILE" />
       <package value="go-frp" />
       <directory value="$PROJECT_DIR$" />
-      <filePath value="$PROJECT_DIR$/server/server.go" />
+      <filePath value="$PROJECT_DIR$/server/main.go" />
       <method v="2" />
     </configuration>
     <recent_temporary>
       <list>
-        <item itemvalue="Go 构建.go build client.go" />
-        <item itemvalue="Go 构建.go build server.go" />
+        <item itemvalue="Go 构建.go build main.go" />
+        <item itemvalue="Go 构建.go build main.go (1)" />
       </list>
     </recent_temporary>
   </component>
@@ -86,6 +106,10 @@
   <component name="SpellCheckerSettings" RuntimeDictionaries="0" Folders="0" CustomDictionaries="0" DefaultDictionary="应用程序级" UseSingleDictionary="true" transferred="true" />
   <component name="TypeScriptGeneratedFilesManager">
     <option name="version" value="3" />
+  </component>
+  <component name="VcsManagerConfiguration">
+    <MESSAGE value="修改密钥认证bug" />
+    <option name="LAST_COMMIT_MESSAGE" value="修改密钥认证bug" />
   </component>
   <component name="VgoProject">
     <settings-migrated>true</settings-migrated>

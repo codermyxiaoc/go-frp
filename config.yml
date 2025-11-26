@@ -1,13 +1,24 @@
 #commion
 buffer-size: 512 #kb
 keep-alive-time: 10 #s
-idle-timeout: 30 #s
 secret: 1234567890
 
+#connection
+enable-long-connection: false
+connection-timeout: 30 #s
+
+#limit
+enable-limit: false
+limit-buffer-size: 1024 #kb
+
 #server
-main-port: 11234
-conn-chan-count: 200
+main-port: 12345
+conn-chan-count: 2000
 
 #client
 server-ip: 127.0.0.1
-local-port: 8090
+local-port:
+  - 8090
+  - 8091
+  - 80
+  - 3306
