@@ -111,10 +111,16 @@ conn-chan-count: 200                #每一个子服务链接通道大小(并发
 
 #客户端配置
 server-ip: 127.0.0.1                #服务端地址
-local-port:                         #本地服务列表
-  - 8090
-  - 8091
-  - 80
+connections:                        #连接列表配置(task和web可以选择设置0会随机端口)
+  - local-port: 8090
+    task-port: 50011
+    web-port: 10002
+    secret: coderxiaoc812728
+  - local-port: 8091
+    task-port: 0
+    web-port: 0
+    secret: coderxiaoc812728
+
 ```
 
 
