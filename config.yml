@@ -1,28 +1,13 @@
 #commion
 buffer-size: 512 #kb
 keep-alive-time: 10 #s
-secret: coderxiaoc812728
-
-#connection
-enable-long-connection: false
-connection-timeout: 30 #s
-
-#limit
-enable-limit: false
-limit-buffer-size: 1024 #kb
+server-port: 8080
+idle-timeout: 30 #s
 
 #server
-main-port: 12345
-conn-chan-count: 2000
+web-port: 8000
+conn-chan-count: 200
 
 #client
 server-ip: 127.0.0.1
-connections:
-  - local-port: 8090
-    task-port: 50011
-    web-port: 10002
-    secret: coderxiaoc812728
-  - local-port: 8091
-    task-port: 50012
-    web-port: 10001
-    secret: coderxiaoc812728
+local-port: 8090
