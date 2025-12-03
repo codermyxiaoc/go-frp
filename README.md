@@ -1,15 +1,12 @@
 # Golang 内网穿透工具 - 高性能多协程网络穿透解决方案
 
 ![](https://img.shields.io/badge/Go-1.19+-blue.svg)![](https://img.shields.io/badge/License-MIT-green.svg)
-一个基于 go 开发的高性能内网穿透工具，专为稳定传输和大文件传输优化设计。
+
+
 一个基于 Golang 开发的高性能内网穿透工具，专为稳定传输和大文件传输优化设计。
+main分支是第一版只支持单客户端连接比较适合学习，需要多链接、密钥认证等请到master分支
 
 ## ✨ 核心特性
-
-### 👍新增功能支持
-
-- 多客户端多端口穿透
-- 连接密钥验证身份
 
 ### 🚀 性能优化
 
@@ -27,6 +24,7 @@
 
 - **YAML 配置文件** - 支持手动配置各项参数
 - **模块化设计** - 各组件参数可独立调整
+- **实时生效** - 配置变更无需重启服务
 
 ## 🏗️ 架构说明
 
@@ -62,7 +60,7 @@ text
 bash
 
 ```
-# 默认 Web 服务端口：随机，Server 服务main端口默认：12345
+# 默认 Web 服务端口：8088，Client 服务端口：8080
 go run server.go
 ```
 
@@ -73,7 +71,7 @@ go run server.go
 bash
 
 ```
-# 默认映射本地 8090等多个端口服务
+# 默认映射本地 8090 端口服务
 go run client.go
 ```
 
@@ -92,35 +90,19 @@ go run client.go
 yaml
 
 ```
-#通用配置
-buffer-size: 512    			   # 缓冲区大小(kb)
-keep-alive-time: 10                 # 心跳包间隔(秒)
-secret: 1234567890                  # 连接密钥
+# 通用配置
+buffer-size: 5        # 缓冲区大小(MB)
+keep-alive-time: 10   # 心跳包间隔(秒)
+server-port: 8080     # 服务端端口
+idle-timeout: 30      # 长连接超时时间(秒)
 
-#连接配置
-enable-long-connection: true        # 是否开启长连接
-connection-timeout: 30              # 未开启长连接(长时间连接没有传输数据断开连接)超时时间(秒)
+# 服务端配置
+web-port: 8088        # Web 管理端口
+conn-chan-count: 100  # 连接通道大小
 
-#限流配置
-enable-limit: false                 #是否开启限流
-limit-buffer-size: 1024             #限流大小(kb)
-
-#服务端配置
-main-port: 12345                    #服务端主连接
-conn-chan-count: 200                #每一个子服务链接通道大小(并发)
-
-#客户端配置
-server-ip: 127.0.0.1                #服务端地址
-connections:                        #连接列表配置(task和web可以选择设置0会随机端口)
-  - local-port: 8090
-    task-port: 50011
-    web-port: 10002
-    secret: coderxiaoc812728
-  - local-port: 8091
-    task-port: 0
-    web-port: 0
-    secret: coderxiaoc812728
-
+# 客户端配置  
+server-ip: 127.0.0.1  # 服务端 IP 地址
+local-port: 8090      # 本地服务端口
 ```
 
 
@@ -129,13 +111,13 @@ connections:                        #连接列表配置(task和web可以选择�
 
 ### 压力测试
 
-- **并发性能**：1秒300线程10000次循环，300w并发全部成功，吞吐量稳定30000/sec
+- **并发性能**：1秒500线程10次循环，全部成功
 - **稳定性**：长时间运行无内存泄漏
 - **大文件传输**：支持 GB 级别文件稳定传输
 
 ### 测试截图
 
-<div align="center"> <img src="./images/wechat_2025-10-08_194845_505.png" width="400"> <img src="./images/wechat_2025-10-08_195218_546.png" width="400"> <br> <em>并发压力测试结果</em> </div><div align="center"> <img src="./images/wechat_2025-10-04_234208_609.png" width="400"> <br> <em>大文件下载测试</em> </div>
+<div align="center"> <img src="./images/wechat_2025-10-06_114438_201.png" width="400"> <img src="./images/wechat_2025-10-06_114625_143.png" width="400"> <br> <em>并发压力测试结果</em> </div><div align="center"> <img src="./images/wechat_2025-10-04_234208_609.png" width="400"> <br> <em>大文件下载测试</em> </div>
 
 ## 🛠️ 使用场景
 
