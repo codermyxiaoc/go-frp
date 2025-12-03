@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/sirupsen/logrus"
@@ -11,13 +12,14 @@ import (
 	"log"
 	"net"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
 
 type Config struct {
 	ConnChanCount        int    `mapstructure:"conn-chan-count" json:"connChanCount"`
-	EnableLongConnection bool   `mapstructure:"enableLong-connection" json:"enableLongConnection"`
+	EnableLongConnection bool   `mapstructure:"enable-long-connection" json:"enableLongConnection"`
 	ConnectionTimeout    int64  `mapstructure:"connection-timeout" json:"connectionTimeout"`
 	BufferSize           int    `mapstructure:"buffer-size" json:"bufferSize"`
 	KeepAliveTime        int    `mapstructure:"keep-alive-time" json:"keepAliveTime"`
@@ -34,15 +36,18 @@ func init() {
 	v := viper.New()
 	v.SetConfigName("config")
 	v.AddConfigPath(".")
-	v.SetDefault("buffer-size", 5)
+	v.SetConfigType("yaml")
+
+	v.SetDefault("conn-chan-count", 200)
+	v.SetDefault("enable-long-connection", false)
 	v.SetDefault("connection-timeout", 30)
-	v.SetDefault("conn-chan-count", 100)
+	v.SetDefault("buffer-size", 512)
 	v.SetDefault("keep-alive-time", 10)
 	v.SetDefault("secret", "secret")
-	v.SetDefault("main-port", "11234")
-	v.SetDefault("enableLong-connection", true)
-	v.SetDefault("enable-limit", true)
+	v.SetDefault("main-port", "12345")
+	v.SetDefault("enable-limit", false)
 	v.SetDefault("limit-buffer-size", 1024)
+
 	if err := v.ReadInConfig(); err != nil {
 		log.Printf("读取配置文件失败: %v", err)
 	}
@@ -72,46 +77,62 @@ func initServer(mainConn net.Conn) {
 	defer func() {
 		err := recover()
 		if err != nil {
-			log.Println(err)
+			logrus.Errorf("panic: %v", err)
 			_ = mainConn.Close()
 		}
 	}()
+
 	err := mainConn.SetReadDeadline(time.Now().Add(10 * time.Second))
 	if err != nil {
-		logrus.Errorf("设置主连接超时失败: %v", err)
+		logrus.Errorf("设置main连接读取超时失败: %v", err)
+		_ = mainConn.Close()
 		return
 	}
 	reader := bufio.NewReader(mainConn)
-	clientSecret, err := reader.ReadString(common.DELIM)
+	connectJson, err := reader.ReadString(common.DELIM)
 	if err != nil {
-		logrus.Errorf("读取客户端密钥失败: %v", err)
+		logrus.Errorf("读取客户端连接配置失败: %v", err)
+		_ = mainConn.Close()
 		return
 	}
-	if len(config.Secret) != (len(clientSecret)-1) || clientSecret[0:len(config.Secret)] != config.Secret {
-		_, _ = mainConn.Write([]byte("00000"))
-		logrus.Errorf("密钥错误[%s]（%s）", clientSecret, mainConn.RemoteAddr().String())
+	var connect common.Connection
+	err = json.Unmarshal([]byte(connectJson), &connect)
+	if err != nil {
+		logrus.Errorf("反序列化连接配置失败: %v", err)
+		_ = mainConn.Close()
+		return
+	}
+	if len(config.Secret) != len(connect.Secret) || connect.Secret != config.Secret {
+		_, _ = mainConn.Write(append([]byte("00000"), common.DELIM))
+		logrus.Errorf("密钥错误:[%s](%s)", connect.Secret, mainConn.RemoteAddr().String())
+		_ = mainConn.Close()
 		return
 	}
 	err = mainConn.SetDeadline(time.Time{})
 	if err != nil {
-		logrus.Errorf("重置main连接超时失败: %v", err)
-		return
-	}
-	go startService(mainConn)
-}
-
-func startService(mainConn net.Conn) {
-	exitChan := make(chan struct{})
-
-	masterListen, err := net.Listen("tcp", ":0")
-	if err != nil {
-		logrus.Errorf("master连接监听启动失败: %v", err)
+		logrus.Errorf("重置main连接读取超时失败: %v", err)
 		_ = mainConn.Close()
 		return
 	}
-	port := masterListen.Addr().(*net.TCPAddr).Port
 
-	_, err = mainConn.Write([]byte(strconv.Itoa(port)))
+	go startService(mainConn, &connect)
+}
+
+func startService(mainConn net.Conn, connect *common.Connection) {
+	exitChan := make(chan struct{})
+
+	masterListen, err := net.Listen("tcp", fmt.Sprintf(":%d", connect.TaskPort))
+	if err != nil {
+		logrus.Errorf("master连接监听启动失败: %v", err)
+		if strings.Contains(err.Error(), "bind: Only one usage of each socket address") {
+			_, _ = mainConn.Write(append([]byte("100000"), common.DELIM))
+		}
+		_ = mainConn.Close()
+		return
+	}
+
+	port := masterListen.Addr().(*net.TCPAddr).Port
+	_, err = mainConn.Write(append([]byte(strconv.Itoa(port)), common.DELIM))
 	if err != nil {
 		logrus.Errorf("发送master连接端口失败指令失败（%s）: %v", mainConn.RemoteAddr(), err)
 		_ = mainConn.Close()
@@ -134,7 +155,7 @@ func startService(mainConn net.Conn) {
 
 	wg.Add(3)
 	go inform(masterConn, informChan, exitChan, &wg)
-	go acceptWeb(connChan, informChan, ctx, masterConn, &wg)
+	go acceptWeb(connChan, informChan, ctx, masterConn, connect.WebPort, exitChan, &wg)
 	go acceptTask(masterListen, connChan, &wg)
 
 	logrus.Printf("%s<->%s 转发接口启动成功", masterConn.LocalAddr(), masterConn.RemoteAddr())
@@ -182,14 +203,17 @@ func inform(masterConn net.Conn, informChan <-chan struct{}, exitChan chan<- str
 	}
 }
 
-func acceptWeb(connChan chan<- net.Conn, informChan chan<- struct{}, ctx context.Context, masterConn net.Conn, wg *sync.WaitGroup) {
+func acceptWeb(connChan chan<- net.Conn, informChan chan<- struct{}, ctx context.Context, masterConn net.Conn, webPort int, exitChan chan<- struct{}, wg *sync.WaitGroup) {
 	defer func() {
 		wg.Done()
 	}()
-
-	webListen, err := net.Listen("tcp", fmt.Sprintf(":0"))
+	webListen, err := net.Listen("tcp", fmt.Sprintf(":%d", webPort))
 	if err != nil {
 		logrus.Errorf("web监听启动失败: %v", err)
+		if strings.Contains(err.Error(), "bind: Only one usage of each socket address") {
+			_, _ = masterConn.Write([]byte(fmt.Sprintf("%d%c", 0, common.DELIM)))
+		}
+		exitChan <- struct{}{}
 		return
 	}
 	go func() {
@@ -197,8 +221,7 @@ func acceptWeb(connChan chan<- net.Conn, informChan chan<- struct{}, ctx context
 		_ = webListen.Close()
 	}()
 
-	webPort := webListen.Addr().(*net.TCPAddr).Port
-	_, err = masterConn.Write([]byte(fmt.Sprintf(":%d%c", webPort, common.DELIM)))
+	_, err = masterConn.Write([]byte(fmt.Sprintf(":%d%c", webListen.Addr().(*net.TCPAddr).Port, common.DELIM)))
 	if err != nil {
 		logrus.Errorf("发送web端口失败指令失败（%s）: %v", masterConn.RemoteAddr(), err)
 		_ = masterConn.Close()
