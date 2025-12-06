@@ -21,7 +21,6 @@ type Config struct {
 	ConnChanCount        int    `mapstructure:"conn-chan-count" json:"connChanCount"`
 	EnableLongConnection bool   `mapstructure:"enable-long-connection" json:"enableLongConnection"`
 	ConnectionTimeout    int64  `mapstructure:"connection-timeout" json:"connectionTimeout"`
-	BufferSize           int    `mapstructure:"buffer-size" json:"bufferSize"`
 	KeepAliveTime        int    `mapstructure:"keep-alive-time" json:"keepAliveTime"`
 	Secret               string `mapstructure:"secret" json:"secret"`
 	MainPort             string `mapstructure:"main-port" json:"mainPort"`
@@ -41,7 +40,6 @@ func init() {
 	v.SetDefault("conn-chan-count", 200)
 	v.SetDefault("enable-long-connection", false)
 	v.SetDefault("connection-timeout", 30)
-	v.SetDefault("buffer-size", 512)
 	v.SetDefault("keep-alive-time", 10)
 	v.SetDefault("secret", "secret")
 	v.SetDefault("main-port", "12345")
@@ -58,11 +56,12 @@ func init() {
 
 func main() {
 	mainListen, err := net.Listen("tcp", fmt.Sprintf(":%s", config.MainPort))
-	defer func() { _ = mainListen.Close() }()
 	if err != nil {
 		logrus.Errorf("主服务器监听失败: %v", err)
 		return
 	}
+	defer func() { _ = mainListen.Close() }()
+
 	for {
 		mainConn, err := mainListen.Accept()
 		if err != nil {
@@ -89,22 +88,22 @@ func initServer(mainConn net.Conn) {
 		return
 	}
 	reader := bufio.NewReader(mainConn)
-	connectJson, err := reader.ReadString(common.DELIM)
+	connectJson, err := reader.ReadBytes(common.DELIM)
 	if err != nil {
 		logrus.Errorf("读取客户端连接配置失败: %v", err)
 		_ = mainConn.Close()
 		return
 	}
 	var connect common.Connection
-	err = json.Unmarshal([]byte(connectJson), &connect)
+	err = json.Unmarshal(connectJson, &connect)
 	if err != nil {
 		logrus.Errorf("反序列化连接配置失败: %v", err)
 		_ = mainConn.Close()
 		return
 	}
 	if len(config.Secret) != len(connect.Secret) || connect.Secret != config.Secret {
-		_, _ = mainConn.Write(append([]byte("00000"), common.DELIM))
 		logrus.Errorf("密钥错误:[%s](%s)", connect.Secret, mainConn.RemoteAddr().String())
+		_, _ = mainConn.Write(append([]byte("00000"), common.DELIM))
 		_ = mainConn.Close()
 		return
 	}
@@ -115,10 +114,10 @@ func initServer(mainConn net.Conn) {
 		return
 	}
 
-	go startService(mainConn, &connect)
+	go startServer(mainConn, &connect)
 }
 
-func startService(mainConn net.Conn, connect *common.Connection) {
+func startServer(mainConn net.Conn, connect *common.Connection) {
 	exitChan := make(chan struct{})
 
 	masterListen, err := net.Listen("tcp", fmt.Sprintf(":%d", connect.TaskPort))
@@ -140,7 +139,7 @@ func startService(mainConn net.Conn, connect *common.Connection) {
 		return
 	}
 	_ = mainConn.Close()
-
+	// TODO master如果等不到第一条连接会卡死在这里
 	masterConn, err := masterListen.Accept()
 	if err != nil {
 		logrus.Errorf("主连接失败: %v", err)
@@ -154,9 +153,9 @@ func startService(mainConn net.Conn, connect *common.Connection) {
 	var wg sync.WaitGroup
 
 	wg.Add(3)
-	go inform(masterConn, informChan, exitChan, &wg)
-	go acceptWeb(connChan, informChan, ctx, masterConn, connect.WebPort, exitChan, &wg)
-	go acceptTask(masterListen, connChan, &wg)
+	go listenNotify(masterConn, informChan, exitChan, &wg)
+	go listenWebConnect(connChan, informChan, ctx, masterConn, connect.WebPort, exitChan, &wg)
+	go listenTaskConnect(masterListen, connChan, &wg)
 
 	logrus.Printf("%s<->%s 转发接口启动成功", masterConn.LocalAddr(), masterConn.RemoteAddr())
 	select {
@@ -172,7 +171,7 @@ func startService(mainConn net.Conn, connect *common.Connection) {
 	}
 }
 
-func inform(masterConn net.Conn, informChan <-chan struct{}, exitChan chan<- struct{}, wg *sync.WaitGroup) {
+func listenNotify(masterConn net.Conn, informChan <-chan struct{}, exitChan chan<- struct{}, wg *sync.WaitGroup) {
 	defer func() {
 		wg.Done()
 		exitChan <- struct{}{}
@@ -203,7 +202,7 @@ func inform(masterConn net.Conn, informChan <-chan struct{}, exitChan chan<- str
 	}
 }
 
-func acceptWeb(connChan chan<- net.Conn, informChan chan<- struct{}, ctx context.Context, masterConn net.Conn, webPort int, exitChan chan<- struct{}, wg *sync.WaitGroup) {
+func listenWebConnect(connChan chan<- net.Conn, informChan chan<- struct{}, ctx context.Context, masterConn net.Conn, webPort int, exitChan chan<- struct{}, wg *sync.WaitGroup) {
 	defer func() {
 		wg.Done()
 	}()
@@ -231,15 +230,13 @@ func acceptWeb(connChan chan<- net.Conn, informChan chan<- struct{}, ctx context
 	for {
 		webConn, err := webListen.Accept()
 		if err != nil {
+			logrus.Errorf("web端接收连接失败: %v", err)
 			var opErr *net.OpError
 			if errors.As(err, &opErr) && opErr.Op == "accept" && opErr.Err.Error() == "use of closed network connection" {
 				return
 			}
-			logrus.Errorf("web端接收连接失败: %v", err)
 			continue
 		}
-
-		webAddr := webConn.RemoteAddr().String()
 
 		go func() {
 			select {
@@ -247,18 +244,20 @@ func acceptWeb(connChan chan<- net.Conn, informChan chan<- struct{}, ctx context
 				select {
 				case informChan <- struct{}{}:
 				default:
-					logrus.Warningf("informChan 已满，无法通知新web连接（%s）", webAddr)
+					logrus.Warning("消息通道已满，无法通知新任务连接")
+					_, _ = webConn.Write(common.WEB_CHAN_ERROR)
 					_ = webConn.Close()
 				}
 			default:
-				logrus.Warningf("connChan 已满，关闭新web连接（%s）", webAddr)
+				logrus.Warning("连接通道已满，无法保存web连接")
+				_, _ = webConn.Write(common.WEB_CHAN_ERROR)
 				_ = webConn.Close()
 			}
 		}()
 	}
 }
 
-func acceptTask(masterListen net.Listener, connChan <-chan net.Conn, wg *sync.WaitGroup) {
+func listenTaskConnect(masterListen net.Listener, connChan <-chan net.Conn, wg *sync.WaitGroup) {
 	defer func() {
 		wg.Done()
 	}()
@@ -266,25 +265,23 @@ func acceptTask(masterListen net.Listener, connChan <-chan net.Conn, wg *sync.Wa
 	for {
 		taskConn, err := masterListen.Accept()
 		if err != nil {
+			logrus.Errorf("接收任务连接失败: %v", err)
 			var opErr *net.OpError
 			if errors.As(err, &opErr) && opErr.Op == "accept" && opErr.Err.Error() == "use of closed network connection" {
 				return
 			}
-			logrus.Errorf("接收任务连接失败: %v", err)
 			continue
 		}
-		taskAddr := taskConn.RemoteAddr().String()
 
 		go func(taskConn net.Conn) {
 			select {
 			case webConn, ok := <-connChan:
 				if !ok {
-					logrus.Errorf("connChan 已关闭，关闭任务连接（%s）", taskAddr)
+					logrus.Error("通获取web连接错误，关闭任务连接")
 					_ = taskConn.Close()
 					return
 				}
 				go common.Transform(taskConn, webConn, common.TransformConfig{
-					BufferSize:           config.BufferSize * 1024,
 					ConnectionTimeout:    config.ConnectionTimeout,
 					DstName:              "task",
 					EnableLimit:          config.EnableLimit,
@@ -292,8 +289,8 @@ func acceptTask(masterListen net.Listener, connChan <-chan net.Conn, wg *sync.Wa
 					LimitBufferSize:      config.LimitBufferSize * 1024,
 					SrcName:              "web",
 				})
-			case <-time.After(10 * time.Second):
-				logrus.Warningf("任务连接（%s）10秒内无web连接配对，已关闭", taskAddr)
+			case <-time.After(3 * time.Second):
+				logrus.Warning("任务连接10秒内无web连接配对，已关闭")
 				_ = taskConn.Close()
 			}
 		}(taskConn)

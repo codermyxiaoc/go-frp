@@ -1,5 +1,4 @@
 #commion
-buffer-size: 512 #kb
 keep-alive-time: 10 #s
 secret: coderxiaoc812728
 
@@ -19,10 +18,14 @@ conn-chan-count: 2000
 server-ip: 127.0.0.1
 connections:
   - local-port: 8090
-    task-port: 50011
-    web-port: 10002
+    task-port: 0
+    web-port: 0
     secret: coderxiaoc812728
   - local-port: 8091
-    task-port: 50012
-    web-port: 10001
+    task-port: 0
+    web-port: 0
+    secret: coderxiaoc812728
+  - local-port: 80
+    task-port: 0
+    web-port: 0
     secret: coderxiaoc812728

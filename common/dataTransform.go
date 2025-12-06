@@ -12,14 +12,26 @@ import (
 type TransformConfig struct {
 	DstName              string
 	SrcName              string
-	BufferSize           int
 	EnableLongConnection bool
 	ConnectionTimeout    int64
 	EnableLimit          bool
 	LimitBufferSize      int
 }
 
+var BufferPool = sync.Pool{
+	New: func() interface{} {
+		return make([]byte, 32*1024)
+	},
+}
+
 func Transform(dstConn, srcConn net.Conn, config TransformConfig) {
+	if tcpConn, ok := dstConn.(*net.TCPConn); ok {
+		_ = tcpConn.SetNoDelay(true)
+	}
+	if tcpConn, ok := srcConn.(*net.TCPConn); ok {
+		_ = tcpConn.SetNoDelay(true)
+	}
+
 	var closeOnce sync.Once
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -32,11 +44,11 @@ func Transform(dstConn, srcConn net.Conn, config TransformConfig) {
 	var monitoredDst io.ReadWriter = dstConn
 	var monitoredSrc io.ReadWriter = srcConn
 
-	if config.EnableLongConnection {
+	if !config.EnableLongConnection {
 		session := NewSession(config.ConnectionTimeout, &closeConn)
 		defer session.Close()
-		monitoredDst = NewMonitored(&dstConn, session)
-		monitoredSrc = NewMonitored(&srcConn, session)
+		monitoredDst = NewMonitored(dstConn, session)
+		monitoredSrc = NewMonitored(srcConn, session)
 		go session.monitorIdle()
 	}
 
@@ -45,13 +57,18 @@ func Transform(dstConn, srcConn net.Conn, config TransformConfig) {
 		monitoredSrc = NewRateLimited(monitoredSrc, rate.NewLimiter(rate.Limit(config.LimitBufferSize), config.LimitBufferSize))
 	}
 
+	bufA := BufferPool.Get().([]byte)
+	defer BufferPool.Put(bufA)
+	bufB := BufferPool.Get().([]byte)
+	defer BufferPool.Put(bufB)
+
 	go func() {
 		defer func() {
 			wg.Done()
 			closeOnce.Do(closeConn)
 		}()
 
-		_, err := io.CopyBuffer(monitoredDst, monitoredSrc, make([]byte, config.BufferSize))
+		_, err := io.CopyBuffer(monitoredDst, monitoredSrc, bufA)
 		if err != nil {
 			if !IsClosedError(err) {
 				logrus.Errorf("%s->%s 转发异常: %v", config.DstName, config.SrcName, err)
@@ -65,7 +82,7 @@ func Transform(dstConn, srcConn net.Conn, config TransformConfig) {
 			closeOnce.Do(closeConn)
 		}()
 
-		_, err := io.CopyBuffer(monitoredSrc, monitoredDst, make([]byte, config.BufferSize))
+		_, err := io.CopyBuffer(monitoredSrc, monitoredDst, bufB)
 		if err != nil {
 			if !IsClosedError(err) {
 				logrus.Errorf("%s->%s 转发异常: %v", config.DstName, config.SrcName, err)

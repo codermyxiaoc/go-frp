@@ -3,11 +3,11 @@ package common
 import (
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
 type Session struct {
-	mu                sync.Mutex
 	lastActivity      int64
 	connectionTimeout int64
 	closeChan         chan struct{}
@@ -32,10 +32,9 @@ func (session *Session) monitorIdle() {
 	for {
 		select {
 		case <-ticker.C:
-			lockBeforeTime := time.Now().Unix()
-			session.mu.Lock()
-			idleTime := lockBeforeTime - session.lastActivity
-			session.mu.Unlock()
+			lastActivity := atomic.LoadInt64(&session.lastActivity)
+			idleTime := time.Now().Unix() - lastActivity
+
 			if idleTime > session.connectionTimeout {
 				session.rollbackOnce.Do(*session.rollback)
 				return
@@ -45,18 +44,15 @@ func (session *Session) monitorIdle() {
 		}
 	}
 }
+
 func (session *Session) updateActivity() {
 	secCurrent := time.Now().Unix()
-	if secCurrent == session.lastActivity {
-		return
+	lastActivity := atomic.LoadInt64(&session.lastActivity)
+	if secCurrent > lastActivity {
+		atomic.StoreInt64(&session.lastActivity, secCurrent)
 	}
-	session.mu.Lock()
-	defer session.mu.Unlock()
-	if session.lastActivity >= secCurrent {
-		return
-	}
-	session.lastActivity = secCurrent
 }
+
 func (session *Session) Close() {
 	select {
 	case <-session.closeChan:
@@ -66,11 +62,11 @@ func (session *Session) Close() {
 }
 
 type Monitored struct {
-	Conn    *net.Conn
+	Conn    net.Conn
 	session *Session
 }
 
-func NewMonitored(conn *net.Conn, session *Session) *Monitored {
+func NewMonitored(conn net.Conn, session *Session) *Monitored {
 	monitored := Monitored{
 		Conn:    conn,
 		session: session,
@@ -79,7 +75,7 @@ func NewMonitored(conn *net.Conn, session *Session) *Monitored {
 }
 
 func (m *Monitored) Read(p []byte) (n int, err error) {
-	n, err = (*m.Conn).Read(p)
+	n, err = m.Conn.Read(p)
 	if n > 0 {
 		m.session.updateActivity()
 	}
@@ -87,7 +83,7 @@ func (m *Monitored) Read(p []byte) (n int, err error) {
 }
 
 func (m *Monitored) Write(p []byte) (n int, err error) {
-	n, err = (*m.Conn).Write(p)
+	n, err = m.Conn.Write(p)
 	if n > 0 {
 		m.session.updateActivity()
 	}

@@ -18,7 +18,6 @@ import (
 
 type Config struct {
 	ServerIp             string               `mapstructure:"server-ip" json:"serverIp"`
-	BufferSize           int                  `mapstructure:"buffer-size" json:"bufferSize"`
 	KeepAliveTime        int                  `mapstructure:"keep-alive-time" json:"keepAliveTime"`
 	ConnectionTimeout    int64                `mapstructure:"connection-timeout" json:"connectionTimeout"`
 	EnableLongConnection bool                 `mapstructure:"enable-long-connection" json:"enableLongConnection"`
@@ -39,7 +38,6 @@ func init() {
 	v.SetConfigType("yaml")
 
 	v.SetDefault("server-ip", "127.0.0.1")
-	v.SetDefault("buffer-size", 512)
 	v.SetDefault("keep-alive-time", 10)
 	v.SetDefault("connection-timeout", 30)
 	v.SetDefault("enable-long-connection", false)
@@ -67,85 +65,122 @@ func main() {
 		if connect.Secret == "" {
 			connect.Secret = config.Secret
 		}
-		go initClient(connect, &wg)
+		go clientConnectLoop(connect, &wg)
 	}
 	wg.Wait()
 }
 
-func initClient(connect *common.Connection, mainWg *sync.WaitGroup) {
+func clientConnectLoop(connect *common.Connection, mainWg *sync.WaitGroup) {
 	defer mainWg.Done()
 
+	delay := 1 * time.Second
+	maxDelay := 30 * time.Second
+
+	connInfo := fmt.Sprintf("本地端口:%d", connect.LocalPort)
+
+	for {
+		logrus.Infof("[%s] 尝试连接服务器: %s:%s", connInfo, config.ServerIp, config.MainPort)
+
+		shouldStop, err := initHandshake(connect)
+		if shouldStop {
+			logrus.Errorf("[%s] 配置或密钥错误，停止重试: %v", connInfo, err)
+			return
+		}
+		if err != nil {
+			logrus.Errorf("[%s] 主连接握手失败，将在 %v 后重试: %v", connInfo, delay, err)
+
+			time.Sleep(delay)
+			delay *= 2
+			if delay > maxDelay {
+				delay = maxDelay
+			}
+			continue
+		}
+
+		delay = 1 * time.Second
+
+		logrus.Infof("[%s] 握手成功，启动任务监听连接: %s:%d", connInfo, config.ServerIp, connect.TaskPort)
+
+		err = startServer(connect)
+
+		if err != nil {
+			logrus.Errorf("[%s] 主连接意外断开，将在 %v 后重试: %v", connInfo, delay, err)
+			time.Sleep(delay)
+			delay *= 2
+			if delay > maxDelay {
+				delay = maxDelay
+			}
+			continue
+		}
+	}
+}
+
+func initHandshake(connect *common.Connection) (bool, error) {
 	mainConn, err := net.Dial("tcp", fmt.Sprintf("%s:%s", config.ServerIp, config.MainPort))
 	if err != nil {
-		logrus.Errorf("连接服务器主连接失败: %v", err)
-		return
+		return false, err
 	}
 	defer func() { _ = mainConn.Close() }()
 
 	connectJson, err := json.Marshal(connect)
 	if err != nil {
 		logrus.Errorf("序列化连接配置失败: %v", err)
-		return
+		return true, err
 	}
 	_, err = mainConn.Write(append(connectJson, common.DELIM))
 	if err != nil {
-		logrus.Errorf("发送连接配置失败: %v", err)
-		return
+		return false, err
 	}
 
 	reader := bufio.NewReader(mainConn)
 	masterPort, err := reader.ReadString(common.DELIM)
 	if err != nil {
-		logrus.Errorf("读取服务器端口失败: %v", err)
-		return
+		return false, err
 	}
 	masterPort = masterPort[:len(masterPort)-1]
+
 	if masterPort == "00000" {
-		logrus.Errorf("密钥错误[%s]", config.Secret)
-		return
+		return true, errors.New(fmt.Sprintf("密钥错误[%s]", connect.Secret))
 	}
 	if masterPort == "100000" {
-		logrus.Errorf("task端口占用[%d]", connect.TaskPort)
-		return
+		return true, errors.New(fmt.Sprintf("task端口占用[%d]", connect.TaskPort))
 	}
+
 	if connect.TaskPort == 0 {
 		if connect.TaskPort, err = strconv.Atoi(masterPort); err != nil {
 			logrus.Errorf("解析task端口失败: %v", err)
-			return
+			return true, err
 		}
 	}
-	_ = mainConn.Close()
-	startServer(connect)
+	return false, nil
 }
 
-func startServer(connect *common.Connection) {
+func startServer(connect *common.Connection) error {
 	dialer := net.Dialer{Timeout: 10 * time.Second}
 	masterConn, err := dialer.Dial("tcp", fmt.Sprintf("%s:%d", config.ServerIp, connect.TaskPort))
 	if err != nil {
-		logrus.Errorf("连接服务器失败: %v", err)
-		return
+		return err
 	}
+
+	defer func() {
+		_ = masterConn.Close()
+	}()
 
 	_, err = masterConn.Write(append([]byte(strconv.Itoa(connect.WebPort)), common.DELIM))
 	if err != nil {
 		logrus.Errorf("发送Web端口失败: %v", err)
-		return
+		return err
 	}
 
 	var wg sync.WaitGroup
 	wg.Add(2)
 
 	go keepAlive(masterConn, &wg)
-	go inform(masterConn, connect, &wg)
+	go listenNotify(masterConn, connect, &wg)
 
 	wg.Wait()
-	defer func() {
-		if err := masterConn.Close(); err != nil {
-			logrus.Errorf("关闭主连接失败: %v", err)
-		} else {
-			logrus.Errorf("主连接已关闭")
-		}
-	}()
+
+	return errors.New("任务连接已断开")
 }
 
 func keepAlive(masterConn net.Conn, wg *sync.WaitGroup) {
@@ -160,14 +195,14 @@ func keepAlive(masterConn net.Conn, wg *sync.WaitGroup) {
 		case <-ticker.C:
 			_, err := masterConn.Write([]byte(common.PI))
 			if err != nil {
-				logrus.Errorf("发送心跳包失败: %v", err)
+				logrus.Errorf("发送心跳包失败，连接断开: %v", err)
 				return
 			}
 		}
 	}
 }
 
-func inform(masterConn net.Conn, connect *common.Connection, wg *sync.WaitGroup) {
+func listenNotify(masterConn net.Conn, connect *common.Connection, wg *sync.WaitGroup) {
 	defer wg.Done()
 	reader := bufio.NewReader(masterConn)
 	for {
@@ -179,10 +214,10 @@ func inform(masterConn net.Conn, connect *common.Connection, wg *sync.WaitGroup)
 		if err != nil {
 			var netErr net.Error
 			if errors.As(err, &netErr) && netErr.Timeout() {
-				logrus.Errorf("读取超时，继续等待数据")
+				logrus.Debugf("读取超时，继续等待数据")
 				continue
 			}
-			logrus.Errorf("读取数据失败: %v", err)
+			logrus.Errorf("读取数据失败，连接断开: %v", err)
 			return
 		}
 		n := len(readString)
@@ -196,8 +231,8 @@ func inform(masterConn net.Conn, connect *common.Connection, wg *sync.WaitGroup)
 			go taskHandler(connect.TaskPort, connect.LocalPort)
 			continue
 		case readString[:n-1] == "0":
+			logrus.Errorf("服务端web端口[%d]被占用, 停止重试", connect.WebPort)
 			_ = masterConn.Close()
-			logrus.Errorf("服务端web端口[%d]被占用", connect.WebPort)
 			return
 		case readString[:1] == ":":
 			if connect.WebPort == 0 {
@@ -209,7 +244,6 @@ func inform(masterConn net.Conn, connect *common.Connection, wg *sync.WaitGroup)
 			}
 			logrus.Printf("%s <-> %s 本地端口: %d web访问地址: http://%s:%d", masterConn.RemoteAddr(), masterConn.LocalAddr(), connect.LocalPort, config.ServerIp, connect.WebPort)
 		}
-
 	}
 }
 
@@ -225,7 +259,7 @@ func taskHandler(taskPort int, localPort int) {
 	localConn, err := dialer.Dial("tcp", fmt.Sprintf(":%d", localPort))
 	if err != nil {
 		logrus.Errorf("任务连接本地服务失败: %v", err)
-		if strings.Contains(err.Error(), "No connection") {
+		if strings.Contains(err.Error(), "connection refused") || strings.Contains(err.Error(), "No connection") {
 			_, _ = serverConn.Write(common.LOCAL_SERVICE_ERROR)
 			_ = serverConn.Close()
 			return
@@ -235,7 +269,6 @@ func taskHandler(taskPort int, localPort int) {
 	}
 
 	go common.Transform(localConn, serverConn, common.TransformConfig{
-		BufferSize:           config.BufferSize * 1024,
 		ConnectionTimeout:    config.ConnectionTimeout,
 		DstName:              "local",
 		EnableLimit:          config.EnableLimit,
@@ -243,5 +276,4 @@ func taskHandler(taskPort int, localPort int) {
 		LimitBufferSize:      config.LimitBufferSize * 1024,
 		SrcName:              "server",
 	})
-
 }
