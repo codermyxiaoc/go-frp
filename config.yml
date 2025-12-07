@@ -18,6 +18,7 @@ conn-chan-count: 2000
 server-ip: 127.0.0.1
 connections:
   - local-port: 8090
+    local-host: 127.0.0.1
     task-port: 0
     web-port: 0
     secret: coderxiaoc812728

@@ -88,14 +88,14 @@ func initServer(mainConn net.Conn) {
 		return
 	}
 	reader := bufio.NewReader(mainConn)
-	connectJson, err := reader.ReadBytes(common.DELIM)
+	connectByte, err := reader.ReadBytes(common.DELIM)
 	if err != nil {
 		logrus.Errorf("读取客户端连接配置失败: %v", err)
 		_ = mainConn.Close()
 		return
 	}
 	var connect common.Connection
-	err = json.Unmarshal(connectJson, &connect)
+	err = json.Unmarshal(connectByte, &connect)
 	if err != nil {
 		logrus.Errorf("反序列化连接配置失败: %v", err)
 		_ = mainConn.Close()
@@ -103,7 +103,7 @@ func initServer(mainConn net.Conn) {
 	}
 	if len(config.Secret) != len(connect.Secret) || connect.Secret != config.Secret {
 		logrus.Errorf("密钥错误:[%s](%s)", connect.Secret, mainConn.RemoteAddr().String())
-		_, _ = mainConn.Write(append([]byte("00000"), common.DELIM))
+		_, _ = mainConn.Write(append([]byte(common.SECRET_ERROR), common.DELIM))
 		_ = mainConn.Close()
 		return
 	}
@@ -118,13 +118,13 @@ func initServer(mainConn net.Conn) {
 }
 
 func startServer(mainConn net.Conn, connect *common.Connection) {
-	exitChan := make(chan struct{})
+	exitSignal := make(chan struct{})
 
 	masterListen, err := net.Listen("tcp", fmt.Sprintf(":%d", connect.TaskPort))
 	if err != nil {
 		logrus.Errorf("master连接监听启动失败: %v", err)
 		if strings.Contains(err.Error(), "bind: Only one usage of each socket address") {
-			_, _ = mainConn.Write(append([]byte("100000"), common.DELIM))
+			_, _ = mainConn.Write(append([]byte(common.TASK_ERROR), common.DELIM))
 		}
 		_ = mainConn.Close()
 		return
@@ -153,13 +153,13 @@ func startServer(mainConn net.Conn, connect *common.Connection) {
 	var wg sync.WaitGroup
 
 	wg.Add(3)
-	go listenNotify(masterConn, informChan, exitChan, &wg)
-	go listenWebConnect(connChan, informChan, ctx, masterConn, connect.WebPort, exitChan, &wg)
+	go listenNotify(masterConn, informChan, exitSignal, &wg)
+	go listenWebConnect(connChan, informChan, ctx, masterConn, connect.WebPort, exitSignal, &wg)
 	go listenTaskConnect(masterListen, connChan, &wg)
 
 	logrus.Printf("%s<->%s 转发接口启动成功", masterConn.LocalAddr(), masterConn.RemoteAddr())
 	select {
-	case <-exitChan:
+	case <-exitSignal:
 		cancel()
 		_ = masterListen.Close()
 		_ = masterConn.Close()
@@ -171,10 +171,10 @@ func startServer(mainConn net.Conn, connect *common.Connection) {
 	}
 }
 
-func listenNotify(masterConn net.Conn, informChan <-chan struct{}, exitChan chan<- struct{}, wg *sync.WaitGroup) {
+func listenNotify(masterConn net.Conn, informChan <-chan struct{}, exitSignal chan<- struct{}, wg *sync.WaitGroup) {
 	defer func() {
 		wg.Done()
-		exitChan <- struct{}{}
+		exitSignal <- struct{}{}
 	}()
 
 	ticker := time.NewTicker(time.Duration(config.KeepAliveTime) * time.Second)
@@ -202,7 +202,7 @@ func listenNotify(masterConn net.Conn, informChan <-chan struct{}, exitChan chan
 	}
 }
 
-func listenWebConnect(connChan chan<- net.Conn, informChan chan<- struct{}, ctx context.Context, masterConn net.Conn, webPort int, exitChan chan<- struct{}, wg *sync.WaitGroup) {
+func listenWebConnect(connChan chan<- net.Conn, informChan chan<- struct{}, ctx context.Context, masterConn net.Conn, webPort int, exitSignal chan<- struct{}, wg *sync.WaitGroup) {
 	defer func() {
 		wg.Done()
 	}()
@@ -212,7 +212,7 @@ func listenWebConnect(connChan chan<- net.Conn, informChan chan<- struct{}, ctx 
 		if strings.Contains(err.Error(), "bind: Only one usage of each socket address") {
 			_, _ = masterConn.Write([]byte(fmt.Sprintf("%d%c", 0, common.DELIM)))
 		}
-		exitChan <- struct{}{}
+		exitSignal <- struct{}{}
 		return
 	}
 	go func() {

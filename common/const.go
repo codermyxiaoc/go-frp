@@ -20,4 +20,6 @@ var (
 		"Retry-After: 5\r\n" +
 		"\r\n" +
 		"可用连接通道占满")
+	SECRET_ERROR = "00000"
+	TASK_ERROR   = "100000"
 )
