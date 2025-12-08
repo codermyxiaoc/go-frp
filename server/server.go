@@ -60,6 +60,7 @@ func main() {
 		logrus.Errorf("主服务器监听失败: %v", err)
 		return
 	}
+	logrus.Infof("main server start suceess port: %s", mainListen.Addr())
 	defer func() { _ = mainListen.Close() }()
 
 	for {
@@ -74,79 +75,66 @@ func main() {
 
 func initServer(mainConn net.Conn) {
 	defer func() {
-		err := recover()
-		if err != nil {
-			logrus.Errorf("panic: %v", err)
-			_ = mainConn.Close()
-		}
+		_ = mainConn.Close()
 	}()
 
 	err := mainConn.SetReadDeadline(time.Now().Add(10 * time.Second))
 	if err != nil {
 		logrus.Errorf("设置main连接读取超时失败: %v", err)
-		_ = mainConn.Close()
 		return
 	}
 	reader := bufio.NewReader(mainConn)
 	connectByte, err := reader.ReadBytes(common.DELIM)
 	if err != nil {
 		logrus.Errorf("读取客户端连接配置失败: %v", err)
-		_ = mainConn.Close()
-		return
-	}
-	var connect common.Connection
-	err = json.Unmarshal(connectByte, &connect)
-	if err != nil {
-		logrus.Errorf("反序列化连接配置失败: %v", err)
-		_ = mainConn.Close()
-		return
-	}
-	if len(config.Secret) != len(connect.Secret) || connect.Secret != config.Secret {
-		logrus.Errorf("密钥错误:[%s](%s)", connect.Secret, mainConn.RemoteAddr().String())
-		_, _ = mainConn.Write(append([]byte(common.SECRET_ERROR), common.DELIM))
-		_ = mainConn.Close()
 		return
 	}
 	err = mainConn.SetDeadline(time.Time{})
 	if err != nil {
 		logrus.Errorf("重置main连接读取超时失败: %v", err)
-		_ = mainConn.Close()
 		return
 	}
 
-	go startServer(mainConn, &connect)
-}
-
-func startServer(mainConn net.Conn, connect *common.Connection) {
-	exitSignal := make(chan struct{})
-
-	masterListen, err := net.Listen("tcp", fmt.Sprintf(":%d", connect.TaskPort))
+	var connect common.Connection
+	err = json.Unmarshal(connectByte, &connect)
 	if err != nil {
-		logrus.Errorf("master连接监听启动失败: %v", err)
+		logrus.Errorf("反序列化连接配置失败: %v", err)
+		return
+	}
+	if len(config.Secret) != len(connect.Secret) || connect.Secret != config.Secret {
+		logrus.Errorf("密钥错误:[%s](%s)", connect.Secret, mainConn.RemoteAddr().String())
+		_, _ = mainConn.Write(append([]byte(common.SECRET_ERROR), common.DELIM))
+		return
+	}
+
+	taskListen, err := net.Listen("tcp", fmt.Sprintf(":%d", connect.TaskPort))
+	if err != nil {
+		logrus.Errorf("task连接监听启动失败: %v", err)
 		if strings.Contains(err.Error(), "bind: Only one usage of each socket address") {
 			_, _ = mainConn.Write(append([]byte(common.TASK_ERROR), common.DELIM))
 		}
-		_ = mainConn.Close()
 		return
 	}
 
-	port := masterListen.Addr().(*net.TCPAddr).Port
+	port := taskListen.Addr().(*net.TCPAddr).Port
 	_, err = mainConn.Write(append([]byte(strconv.Itoa(port)), common.DELIM))
 	if err != nil {
-		logrus.Errorf("发送master连接端口失败指令失败（%s）: %v", mainConn.RemoteAddr(), err)
-		_ = mainConn.Close()
-		_ = masterListen.Close()
+		logrus.Errorf("发送task连接端口失败指令失败（%s）: %v", mainConn.RemoteAddr(), err)
 		return
 	}
-	_ = mainConn.Close()
+	go startServer(taskListen, &connect)
+}
+
+func startServer(taskListen net.Listener, connect *common.Connection) {
 	// TODO master如果等不到第一条连接会卡死在这里
-	masterConn, err := masterListen.Accept()
+	masterConn, err := taskListen.Accept()
 	if err != nil {
 		logrus.Errorf("主连接失败: %v", err)
-		_ = masterListen.Close()
+		_ = taskListen.Close()
 		return
 	}
 
+	exitSignal := make(chan struct{})
 	ctx, cancel := context.WithCancel(context.Background())
 	informChan := make(chan struct{}, config.ConnChanCount)
 	connChan := make(chan net.Conn, config.ConnChanCount)
@@ -154,19 +142,18 @@ func startServer(mainConn net.Conn, connect *common.Connection) {
 
 	wg.Add(3)
 	go listenNotify(masterConn, informChan, exitSignal, &wg)
-	go listenWebConnect(connChan, informChan, ctx, masterConn, connect.WebPort, exitSignal, &wg)
-	go listenTaskConnect(masterListen, connChan, &wg)
+	go listenWebConnect(connChan, informChan, masterConn, connect, ctx, exitSignal, &wg)
+	go listenTaskConnect(taskListen, connChan, &wg)
 
-	logrus.Printf("%s<->%s 转发接口启动成功", masterConn.LocalAddr(), masterConn.RemoteAddr())
 	select {
 	case <-exitSignal:
 		cancel()
-		_ = masterListen.Close()
+		_ = taskListen.Close()
 		_ = masterConn.Close()
 		wg.Wait()
 		close(informChan)
 		close(connChan)
-		logrus.Printf("%s<->%s 转发接口退出成功", masterConn.LocalAddr(), masterConn.RemoteAddr())
+		logrus.Printf("%s<->%s task转发接口退出成功 - %s:%d<->%d穿透端口端口连接", masterConn.LocalAddr(), masterConn.RemoteAddr(), connect.LocalHost, connect.LocalPort, connect.WebPort)
 		return
 	}
 }
@@ -202,11 +189,11 @@ func listenNotify(masterConn net.Conn, informChan <-chan struct{}, exitSignal ch
 	}
 }
 
-func listenWebConnect(connChan chan<- net.Conn, informChan chan<- struct{}, ctx context.Context, masterConn net.Conn, webPort int, exitSignal chan<- struct{}, wg *sync.WaitGroup) {
+func listenWebConnect(connChan chan<- net.Conn, informChan chan<- struct{}, masterConn net.Conn, connect *common.Connection, ctx context.Context, exitSignal chan<- struct{}, wg *sync.WaitGroup) {
 	defer func() {
 		wg.Done()
 	}()
-	webListen, err := net.Listen("tcp", fmt.Sprintf(":%d", webPort))
+	webListen, err := net.Listen("tcp", fmt.Sprintf(":%d", connect.WebPort))
 	if err != nil {
 		logrus.Errorf("web监听启动失败: %v", err)
 		if strings.Contains(err.Error(), "bind: Only one usage of each socket address") {
@@ -220,12 +207,14 @@ func listenWebConnect(connChan chan<- net.Conn, informChan chan<- struct{}, ctx 
 		_ = webListen.Close()
 	}()
 
-	_, err = masterConn.Write([]byte(fmt.Sprintf(":%d%c", webListen.Addr().(*net.TCPAddr).Port, common.DELIM)))
+	connect.WebPort = webListen.Addr().(*net.TCPAddr).Port
+	_, err = masterConn.Write([]byte(fmt.Sprintf(":%d%c", connect.WebPort, common.DELIM)))
 	if err != nil {
 		logrus.Errorf("发送web端口失败指令失败（%s）: %v", masterConn.RemoteAddr(), err)
 		_ = masterConn.Close()
 		return
 	}
+	logrus.Printf("%s<->%s task转发接口启动成功 - %s:%d<->%d穿透端口映射成功", masterConn.LocalAddr(), masterConn.RemoteAddr(), connect.LocalHost, connect.LocalPort, connect.WebPort)
 
 	for {
 		webConn, err := webListen.Accept()
@@ -257,13 +246,13 @@ func listenWebConnect(connChan chan<- net.Conn, informChan chan<- struct{}, ctx 
 	}
 }
 
-func listenTaskConnect(masterListen net.Listener, connChan <-chan net.Conn, wg *sync.WaitGroup) {
+func listenTaskConnect(taskListen net.Listener, connChan <-chan net.Conn, wg *sync.WaitGroup) {
 	defer func() {
 		wg.Done()
 	}()
 
 	for {
-		taskConn, err := masterListen.Accept()
+		taskConn, err := taskListen.Accept()
 		if err != nil {
 			logrus.Errorf("接收任务连接失败: %v", err)
 			var opErr *net.OpError

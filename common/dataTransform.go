@@ -18,7 +18,7 @@ type TransformConfig struct {
 	LimitBufferSize      int
 }
 
-var BufferPool = sync.Pool{
+var bufferPool = sync.Pool{
 	New: func() interface{} {
 		return make([]byte, 32*1024)
 	},
@@ -57,10 +57,10 @@ func Transform(dstConn, srcConn net.Conn, config TransformConfig) {
 		monitoredSrc = NewRateLimited(monitoredSrc, rate.NewLimiter(rate.Limit(config.LimitBufferSize), config.LimitBufferSize))
 	}
 
-	bufA := BufferPool.Get().([]byte)
-	defer BufferPool.Put(bufA)
-	bufB := BufferPool.Get().([]byte)
-	defer BufferPool.Put(bufB)
+	bufA := bufferPool.Get().([]byte)
+	defer bufferPool.Put(bufA)
+	bufB := bufferPool.Get().([]byte)
+	defer bufferPool.Put(bufB)
 
 	go func() {
 		defer func() {
