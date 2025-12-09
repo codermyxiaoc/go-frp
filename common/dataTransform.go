@@ -5,7 +5,6 @@ import (
 	"golang.org/x/time/rate"
 	"io"
 	"net"
-	"strings"
 	"sync"
 )
 
@@ -90,20 +89,4 @@ func Transform(dstConn, srcConn net.Conn, config TransformConfig) {
 		}
 	}()
 	wg.Wait()
-}
-
-func IsClosedError(err error) bool {
-	if err == nil {
-		return false
-	}
-	if err == io.EOF {
-		return true
-	}
-	errMsg := err.Error()
-	return strings.Contains(errMsg, "closed network connection") ||
-		strings.Contains(errMsg, "use of closed network connection") ||
-		strings.Contains(errMsg, "read: connection reset by peer") ||
-		strings.Contains(errMsg, "write: broken pipe") ||
-		strings.Contains(errMsg, "wsasend: An established connection was aborted by the software in your host machine") ||
-		strings.Contains(errMsg, "wsarecv: An existing connection was forcibly closed by the remote host")
 }

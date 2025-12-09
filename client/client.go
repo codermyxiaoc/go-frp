@@ -227,7 +227,7 @@ func listenNotify(masterConn net.Conn, connect *common.Connection, wg *sync.Wait
 		case n == common.PI_LEN && readString == common.PI:
 			continue
 		case n == common.NEW_TASK_LEN && readString[:common.NEW_TASK_LEN] == common.NEW_TASK:
-			go taskHandler(connect.TaskPort, connect.LocalPort, connect.LocalHost)
+			go taskHandler(connect)
 			continue
 		case readString[:n-1] == "0":
 			logrus.Errorf("服务端web端口[%d]被占用, 停止重试", connect.WebPort)
@@ -246,14 +246,14 @@ func listenNotify(masterConn net.Conn, connect *common.Connection, wg *sync.Wait
 	}
 }
 
-func taskHandler(taskPort int, localPort int, localHost string) {
-	serverConn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", config.ServerIp, taskPort), 10*time.Second)
+func taskHandler(connect *common.Connection) {
+	serverConn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", config.ServerIp, connect.TaskPort), 10*time.Second)
 	if err != nil {
 		logrus.Errorf("任务连接服务器失败: %v", err)
 		return
 	}
 
-	localConn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", localHost, localPort), 10*time.Second)
+	localConn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", connect.LocalHost, connect.LocalPort), 10*time.Second)
 	if err != nil {
 		logrus.Errorf("任务连接本地服务失败: %v", err)
 		if strings.Contains(err.Error(), "connection refused") || strings.Contains(err.Error(), "No connection") {

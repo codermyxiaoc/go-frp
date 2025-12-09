@@ -26,7 +26,7 @@ connections:
     task-port: 0
     web-port: 0
     secret: coderxiaoc812728
-  - local-port: 80
+  - local-port: 3000
     task-port: 0
     web-port: 0
     secret: coderxiaoc812728

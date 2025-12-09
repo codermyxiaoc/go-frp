@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
@@ -12,7 +11,6 @@ import (
 	"log"
 	"net"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 )
@@ -110,7 +108,7 @@ func initServer(mainConn net.Conn) {
 	taskListen, err := net.Listen("tcp", fmt.Sprintf(":%d", connect.TaskPort))
 	if err != nil {
 		logrus.Errorf("task连接监听启动失败: %v", err)
-		if strings.Contains(err.Error(), "bind: Only one usage of each socket address") {
+		if common.IsPortInUse(err) {
 			_, _ = mainConn.Write(append([]byte(common.TASK_ERROR), common.DELIM))
 		}
 		return
@@ -126,13 +124,14 @@ func initServer(mainConn net.Conn) {
 }
 
 func startServer(taskListen net.Listener, connect *common.Connection) {
-	// TODO master如果等不到第一条连接会卡死在这里
+	_ = taskListen.(*net.TCPListener).SetDeadline(time.Now().Add(10 * time.Second))
 	masterConn, err := taskListen.Accept()
 	if err != nil {
 		logrus.Errorf("主连接失败: %v", err)
 		_ = taskListen.Close()
 		return
 	}
+	_ = taskListen.(*net.TCPListener).SetDeadline(time.Time{})
 
 	exitSignal := make(chan struct{})
 	ctx, cancel := context.WithCancel(context.Background())
@@ -196,7 +195,7 @@ func listenWebConnect(connChan chan<- net.Conn, informChan chan<- struct{}, mast
 	webListen, err := net.Listen("tcp", fmt.Sprintf(":%d", connect.WebPort))
 	if err != nil {
 		logrus.Errorf("web监听启动失败: %v", err)
-		if strings.Contains(err.Error(), "bind: Only one usage of each socket address") {
+		if common.IsPortInUse(err) {
 			_, _ = masterConn.Write([]byte(fmt.Sprintf("%d%c", 0, common.DELIM)))
 		}
 		exitSignal <- struct{}{}
@@ -220,8 +219,7 @@ func listenWebConnect(connChan chan<- net.Conn, informChan chan<- struct{}, mast
 		webConn, err := webListen.Accept()
 		if err != nil {
 			logrus.Errorf("web端接收连接失败: %v", err)
-			var opErr *net.OpError
-			if errors.As(err, &opErr) && opErr.Op == "accept" && opErr.Err.Error() == "use of closed network connection" {
+			if common.IsAcceptError(err) {
 				return
 			}
 			continue
@@ -255,8 +253,7 @@ func listenTaskConnect(taskListen net.Listener, connChan <-chan net.Conn, wg *sy
 		taskConn, err := taskListen.Accept()
 		if err != nil {
 			logrus.Errorf("接收任务连接失败: %v", err)
-			var opErr *net.OpError
-			if errors.As(err, &opErr) && opErr.Op == "accept" && opErr.Err.Error() == "use of closed network connection" {
+			if common.IsAcceptError(err) {
 				return
 			}
 			continue
