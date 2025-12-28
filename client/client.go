@@ -17,15 +17,18 @@ import (
 )
 
 type Config struct {
-	ServerIp             string               `mapstructure:"server-ip" json:"serverIp"`
-	KeepAliveTime        int                  `mapstructure:"keep-alive-time" json:"keepAliveTime"`
-	ConnectionTimeout    int64                `mapstructure:"connection-timeout" json:"connectionTimeout"`
-	EnableLongConnection bool                 `mapstructure:"enable-long-connection" json:"enableLongConnection"`
-	Secret               string               `mapstructure:"secret" json:"secret"`
-	MainPort             string               `mapstructure:"main-port" json:"mainPort"`
-	EnableLimit          bool                 `mapstructure:"enable-limit" json:"enableLimit"`
-	LimitBufferSize      int                  `mapstructure:"limit-buffer-size" json:"limitBufferSize"`
-	Connections          []*common.Connection `mapstructure:"connections" json:"connections"`
+	ServerIp          string            `mapstructure:"server-ip" json:"serverIp"`
+	KeepAliveTime     int               `mapstructure:"keep-alive-time" json:"keepAliveTime"`
+	ConnectTimeout    int64             `mapstructure:"connection-timeout" json:"connectTimeout"`
+	EnableLongConnect bool              `mapstructure:"enable-long-connection" json:"enableLongConnect"`
+	Secret            string            `mapstructure:"secret" json:"secret"`
+	MainPort          string            `mapstructure:"main-port" json:"mainPort"`
+	EnableLimit       bool              `mapstructure:"enable-limit" json:"enableLimit"`
+	LimitBufferSize   int               `mapstructure:"limit-buffer-size" json:"limitBufferSize"`
+	DialTimeout       int               `mapstructure:"dial-timeout" json:"dialTimeout"`
+	ReadTimeout       int               `mapstructure:"read-timeout" json:"readTimeout"`
+	HandshakeTimeout  int               `mapstructure:"handshake-timeout" json:"handshakeTimeout"`
+	Connects          []*common.Connect `mapstructure:"connections" json:"connections"`
 }
 
 var config Config
@@ -45,6 +48,9 @@ func init() {
 	v.SetDefault("main-port", "12345")
 	v.SetDefault("enable-limit", false)
 	v.SetDefault("limit-buffer-size", 1024)
+	v.SetDefault("dial-timeout", 10)
+	v.SetDefault("read-timeout", 60)
+	v.SetDefault("handshake-timeout", 10)
 
 	if err := v.ReadInConfig(); err != nil {
 		log.Printf("读取配置文件失败: %v", err)
@@ -55,13 +61,13 @@ func init() {
 }
 
 func main() {
-	if len(config.Connections) <= 0 {
-		logrus.Errorf("请配置内网穿透端口映射:[connections]")
+	if len(config.Connects) <= 0 {
+		logrus.Errorf("请配置内网穿透端口映射:[Connects]")
 		return
 	}
 	var wg sync.WaitGroup
-	wg.Add(len(config.Connections))
-	for _, connect := range config.Connections {
+	wg.Add(len(config.Connects))
+	for _, connect := range config.Connects {
 		if connect.Secret == "" {
 			connect.Secret = config.Secret
 		}
@@ -70,7 +76,7 @@ func main() {
 	wg.Wait()
 }
 
-func clientConnectLoop(connect *common.Connection, mainWg *sync.WaitGroup) {
+func clientConnectLoop(connect *common.Connect, mainWg *sync.WaitGroup) {
 	defer mainWg.Done()
 
 	delay := 1 * time.Second
@@ -115,12 +121,16 @@ func clientConnectLoop(connect *common.Connection, mainWg *sync.WaitGroup) {
 	}
 }
 
-func initServer(connect *common.Connection) (bool, error) {
+func initServer(connect *common.Connect) (bool, error) {
 	mainConn, err := net.Dial("tcp", fmt.Sprintf("%s:%s", config.ServerIp, config.MainPort))
 	if err != nil {
 		return false, err
 	}
-	defer func() { _ = mainConn.Close() }()
+	defer func() {
+		if err := mainConn.Close(); err != nil {
+			logrus.Debugf("关闭main连接失败: %v", err)
+		}
+	}()
 
 	connectByte, err := json.Marshal(connect)
 	if err != nil {
@@ -155,14 +165,16 @@ func initServer(connect *common.Connection) (bool, error) {
 	return false, nil
 }
 
-func startServer(connect *common.Connection) error {
-	masterConn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", config.ServerIp, connect.TaskPort), 10*time.Second)
+func startServer(connect *common.Connect) error {
+	masterConn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", config.ServerIp, connect.TaskPort), time.Duration(config.DialTimeout)*time.Second)
 	if err != nil {
 		return err
 	}
 
 	defer func() {
-		_ = masterConn.Close()
+		if err := masterConn.Close(); err != nil {
+			logrus.Debugf("关闭master连接失败: %v", err)
+		}
 	}()
 
 	_, err = masterConn.Write(append([]byte(strconv.Itoa(connect.WebPort)), common.DELIM))
@@ -201,11 +213,11 @@ func keepAlive(masterConn net.Conn, wg *sync.WaitGroup) {
 	}
 }
 
-func listenNotify(masterConn net.Conn, connect *common.Connection, wg *sync.WaitGroup) {
+func listenNotify(masterConn net.Conn, connect *common.Connect, wg *sync.WaitGroup) {
 	defer wg.Done()
 	reader := bufio.NewReader(masterConn)
 	for {
-		if err := masterConn.SetReadDeadline(time.Now().Add(60 * time.Second)); err != nil {
+		if err := masterConn.SetReadDeadline(time.Now().Add(time.Duration(config.ReadTimeout) * time.Second)); err != nil {
 			logrus.Errorf("设置读取超时失败: %v", err)
 			return
 		}
@@ -231,13 +243,17 @@ func listenNotify(masterConn net.Conn, connect *common.Connection, wg *sync.Wait
 			continue
 		case readString[:n-1] == "0":
 			logrus.Errorf("服务端web端口[%d]被占用, 停止重试", connect.WebPort)
-			_ = masterConn.Close()
+			if err := masterConn.Close(); err != nil {
+				logrus.Debugf("关闭master连接失败: %v", err)
+			}
 			return
 		case readString[:1] == ":":
 			if connect.WebPort == 0 {
 				if connect.WebPort, err = strconv.Atoi(readString[1 : len(readString)-1]); err != nil {
 					logrus.Errorf("解析web端口失败: %v", err)
-					_ = masterConn.Close()
+					if closeErr := masterConn.Close(); closeErr != nil {
+						logrus.Debugf("关闭master连接失败: %v", closeErr)
+					}
 					return
 				}
 			}
@@ -246,30 +262,32 @@ func listenNotify(masterConn net.Conn, connect *common.Connection, wg *sync.Wait
 	}
 }
 
-func taskHandler(connect *common.Connection) {
-	serverConn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", config.ServerIp, connect.TaskPort), 10*time.Second)
+func taskHandler(connect *common.Connect) {
+	serverConn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", config.ServerIp, connect.TaskPort), time.Duration(config.DialTimeout)*time.Second)
 	if err != nil {
 		logrus.Errorf("任务连接服务器失败: %v", err)
 		return
 	}
 
-	localConn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", connect.LocalHost, connect.LocalPort), 10*time.Second)
+	localConn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", connect.LocalHost, connect.LocalPort), time.Duration(config.DialTimeout)*time.Second)
 	if err != nil {
 		logrus.Errorf("任务连接本地服务失败: %v", err)
 		if strings.Contains(err.Error(), "connection refused") || strings.Contains(err.Error(), "No connection") {
-			_, _ = serverConn.Write(common.LOCAL_SERVICE_ERROR)
-			_ = serverConn.Close()
-			return
+			if _, writeErr := serverConn.Write(common.LOCAL_SERVICE_ERROR); writeErr != nil {
+				logrus.Debugf("发送本地服务错误响应失败: %v", writeErr)
+			}
 		}
-		_ = serverConn.Close()
+		if closeErr := serverConn.Close(); closeErr != nil {
+			logrus.Debugf("关闭服务端连接失败: %v", closeErr)
+		}
 		return
 	}
 
 	go common.Transform(localConn, serverConn, common.TransformConfig{
-		ConnectionTimeout:    config.ConnectionTimeout,
+		ConnectionTimeout:    config.ConnectTimeout,
 		DstName:              "local",
 		EnableLimit:          config.EnableLimit,
-		EnableLongConnection: config.EnableLongConnection,
+		EnableLongConnection: config.EnableLongConnect,
 		LimitBufferSize:      config.LimitBufferSize * 1024,
 		SrcName:              "server",
 	})

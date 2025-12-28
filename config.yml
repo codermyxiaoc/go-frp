@@ -1,10 +1,16 @@
-#commion
+#common
 keep-alive-time: 10 #s
 secret: coderxiaoc812728
 
 #connection
 enable-long-connection: false
 connection-timeout: 30 #s
+
+#timeout settings (in seconds)
+dial-timeout: 10          # 连接建立超时
+read-timeout: 60          # 读取超时
+task-pair-timeout: 3      # 任务连接配对超时
+handshake-timeout: 10     # 握手超时
 
 #limit
 enable-limit: false
@@ -20,13 +26,16 @@ connections:
   - local-port: 8090
     local-host: 127.0.0.1
     task-port: 0
+    type: tcp
     web-port: 0
     secret: coderxiaoc812728
   - local-port: 8091
     task-port: 0
+    type: tcp
     web-port: 0
     secret: coderxiaoc812728
   - local-port: 3000
     task-port: 0
+    type: tcp
     web-port: 0
     secret: coderxiaoc812728

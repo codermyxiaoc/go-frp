@@ -4,12 +4,15 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="ef4b4717-2efd-4a25-a202-5c34eb8f1b06" name="更改" comment="修改密钥认证bug">
-      <change afterPath="$PROJECT_DIR$/common/connection.go" afterDir="false" />
+    <list default="true" id="50ff0955-0893-4264-becb-bf6572085ba7" name="更改" comment="解决master如果等不到第一条连接会阻塞，为等待连接加上超时时间">
+      <change beforePath="$PROJECT_DIR$/.gitignore" beforeDir="false" afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/client/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/client/main.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/client/client.go" beforeDir="false" afterPath="$PROJECT_DIR$/client/client.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/common/connection.go" beforeDir="false" afterPath="$PROJECT_DIR$/common/connect.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/common/log.go" beforeDir="false" afterPath="$PROJECT_DIR$/common/log.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/config.yml" beforeDir="false" afterPath="$PROJECT_DIR$/config.yml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/server/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/server/main.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/server/server.go" beforeDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -31,10 +34,9 @@
     <option name="stateVersion" value="1" />
   </component>
   <component name="ProjectColorInfo">{
-  &quot;customColor&quot;: &quot;&quot;,
-  &quot;associatedIndex&quot;: 6
+  &quot;associatedIndex&quot;: 7
 }</component>
-  <component name="ProjectId" id="340aY6PIGpPpAlM1C0i8u8PW3qQ" />
+  <component name="ProjectId" id="36O9E5MFmxyVVAhrIgMoloRphMg" />
   <component name="ProjectViewState">
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
@@ -43,7 +45,6 @@
   &quot;keyToString&quot;: {
     &quot;DefaultGoTemplateProperty&quot;: &quot;Go File&quot;,
     &quot;Go 构建.go build client.go.executor&quot;: &quot;Run&quot;,
-    &quot;Go 构建.go build go-frp.executor&quot;: &quot;Run&quot;,
     &quot;Go 构建.go build main.go (1).executor&quot;: &quot;Run&quot;,
     &quot;Go 构建.go build main.go.executor&quot;: &quot;Run&quot;,
     &quot;Go 构建.go build server.go.executor&quot;: &quot;Run&quot;,
@@ -53,32 +54,24 @@
     &quot;RunOnceActivity.go.migrated.go.modules.settings&quot;: &quot;true&quot;,
     &quot;RunOnceActivity.go.modules.automatic.dependencies.download&quot;: &quot;true&quot;,
     &quot;RunOnceActivity.go.modules.go.list.on.any.changes.was.set&quot;: &quot;true&quot;,
-    &quot;git-widget-placeholder&quot;: &quot;master&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;main&quot;,
     &quot;go.import.settings.migrated&quot;: &quot;true&quot;,
     &quot;go.sdk.automatically.set&quot;: &quot;true&quot;,
-    &quot;last_opened_file_path&quot;: &quot;E:/go/go-frp&quot;,
+    &quot;last_opened_file_path&quot;: &quot;C:/Users/ASUS&quot;,
     &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
     &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
     &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
     &quot;settings.editor.selected.configurable&quot;: &quot;go.sdk&quot;
   }
 }</component>
-  <component name="RecentsManager">
-    <key name="CopyFile.RECENT_KEYS">
-      <recent name="E:\go\go-frp" />
-    </key>
-    <key name="MoveFile.RECENT_KEYS">
-      <recent name="E:\go\go-frp" />
-    </key>
-  </component>
-  <component name="RunManager" selected="Go 构建.go build main.go (1)">
-    <configuration name="go build go-frp" type="GoApplicationRunConfiguration" factoryName="Go Application" temporary="true" nameIsGenerated="true">
+  <component name="RunManager" selected="Go 构建.go build server.go">
+    <configuration name="go build client.go" type="GoApplicationRunConfiguration" factoryName="Go Application" temporary="true" nameIsGenerated="true">
       <module name="go-frp" />
       <working_directory value="$PROJECT_DIR$" />
-      <kind value="PACKAGE" />
+      <kind value="FILE" />
       <package value="go-frp" />
       <directory value="$PROJECT_DIR$" />
-      <filePath value="$PROJECT_DIR$/main.go" />
+      <filePath value="$PROJECT_DIR$/client/client.go" />
       <method v="2" />
     </configuration>
     <configuration name="go build main.go (1)" type="GoApplicationRunConfiguration" factoryName="Go Application" temporary="true" nameIsGenerated="true">
@@ -99,11 +92,21 @@
       <filePath value="$PROJECT_DIR$/server/main.go" />
       <method v="2" />
     </configuration>
+    <configuration name="go build server.go" type="GoApplicationRunConfiguration" factoryName="Go Application" temporary="true" nameIsGenerated="true">
+      <module name="go-frp" />
+      <working_directory value="$PROJECT_DIR$" />
+      <kind value="FILE" />
+      <package value="go-frp" />
+      <directory value="$PROJECT_DIR$" />
+      <filePath value="$PROJECT_DIR$/server/server.go" />
+      <method v="2" />
+    </configuration>
     <recent_temporary>
       <list>
+        <item itemvalue="Go 构建.go build client.go" />
+        <item itemvalue="Go 构建.go build server.go" />
         <item itemvalue="Go 构建.go build main.go (1)" />
         <item itemvalue="Go 构建.go build main.go" />
-        <item itemvalue="Go 构建.go build go-frp" />
       </list>
     </recent_temporary>
   </component>
@@ -118,9 +121,23 @@
   <component name="TypeScriptGeneratedFilesManager">
     <option name="version" value="3" />
   </component>
+  <component name="Vcs.Log.Tabs.Properties">
+    <option name="TAB_STATES">
+      <map>
+        <entry key="MAIN">
+          <value>
+            <State />
+          </value>
+        </entry>
+      </map>
+    </option>
+  </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="修改密钥认证bug" />
-    <option name="LAST_COMMIT_MESSAGE" value="修改密钥认证bug" />
+    <MESSAGE value="优化 Monitored监控、连接超时时间、iocopy缓冲区等，新增客户端重连机制" />
+    <MESSAGE value="优化代码" />
+    <MESSAGE value="优化代码逻辑，变量名修改" />
+    <MESSAGE value="解决master如果等不到第一条连接会阻塞，为等待连接加上超时时间" />
+    <option name="LAST_COMMIT_MESSAGE" value="解决master如果等不到第一条连接会阻塞，为等待连接加上超时时间" />
   </component>
   <component name="VgoProject">
     <settings-migrated>true</settings-migrated>
